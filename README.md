@@ -48,3 +48,10 @@ Le joueur ouvre le site, entre le code, autorise le micro → il entend les joue
 - Certains réseaux 4G bloquent le pair-à-pair. Si deux joueurs restent sur « Connexion… », ajoute un serveur TURN sur Render : `TURN_URL`, `TURN_USER`, `TURN_PASS` (ex. compte gratuit Metered/ExpressTURN).
 - Connexion en maillage : parfait jusqu'à ~10-15 joueurs proches en même temps.
 - Options du pack dans `config.js` : actionbar « Vocal connecté », ♪ sous le pseudo de ceux qui parlent (désactivé par défaut pour ne pas casser tes grades).
+
+## Pont Discord (dossier `bridge/`, tourne sur le PC)
+1. Crée tes bots sur https://discord.com/developers/applications (un par joueur Discord simultané).
+2. Copie `config.example.json` en `config.json` et mets la clé `MC_KEY`.
+3. Colle les tokens dans `tokens.txt` (un par ligne, le 1er = bot principal).
+4. Double-clique « Lancer le pont vocal.command ». Les liens d'invitation des bots s'affichent dans la fenêtre.
+5. Sur Discord : rejoins « ➕ Rejoindre le vocal », puis `/lier CODE` avec le code de `/vocal`.

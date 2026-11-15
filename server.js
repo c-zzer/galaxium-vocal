@@ -38,6 +38,14 @@ const speaking = new Set(); // names(lowercase) en train de parler
 const prefs = new Map(); // name(lowercase) -> { cible(lowercase) | "*": volume 0-200 } réglés avec /voc
 let lastGameSync = 0;
 
+// ───── Pont Discord (programme qui tourne sur le PC, voir dossier bridge/) ─────
+let bridge = null; // WebSocket du pont
+const discordActive = new Map(); // name(lowercase) -> nom MC des joueurs en vocal sur Discord
+const discordSpeaking = new Set();
+const isLinked = (k) => clients.has(k) || discordActive.has(k);
+const isSpeaking = (k) => speaking.has(k) || discordSpeaking.has(k);
+const FRAME = 320; // 20 ms d'audio en 16 kHz mono (Int16)
+
 const key = (n) => String(n).toLowerCase();
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sans 0/O/1/I
 
@@ -136,8 +144,8 @@ const server = http.createServer(async (req, res) => {
       for (const k of players.keys()) if (!online.has(k)) players.delete(k);
       broadcastPositions();
       return send(res, 200, {
-        linked: [...clients.keys()].filter((k) => online.has(k)).map((k) => players.get(k).name),
-        speaking: [...speaking].filter((k) => online.has(k)).map((k) => players.get(k).name),
+        linked: [...online].filter((k) => isLinked(k)).map((k) => players.get(k).name),
+        speaking: [...online].filter((k) => isSpeaking(k)).map((k) => players.get(k).name),
         muted: [...clients.entries()].filter(([k, w]) => online.has(k) && w.siteMuted).map(([k]) => players.get(k).name),
       });
     }
@@ -161,6 +169,7 @@ const server = http.createServer(async (req, res) => {
       }
       prefs.set(key(body.name), clean);
       wsSend(clients.get(key(body.name)), { t: "prefs", v: clean });
+      wsSend(bridge, { t: "prefs", name: key(body.name), v: clean });
       return send(res, 200, { ok: true });
     }
 
@@ -178,7 +187,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 404, { error: "not found" });
   }
 
-  if (url.pathname === "/health") return send(res, 200, { ok: true, game: Date.now() - lastGameSync < GAME_TIMEOUT_MS });
+  if (url.pathname === "/health") return send(res, 200, { ok: true, game: Date.now() - lastGameSync < GAME_TIMEOUT_MS, bridge: !!bridge, discord: discordActive.size });
 
   // ── Site ──
   if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
@@ -193,7 +202,26 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ───────────── WebSocket (navigateurs) ─────────────
-const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 64 * 1024 });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+const bwss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+server.on("upgrade", (req, socket, head) => {
+  const p = new URL(req.url, "http://x").pathname;
+  const target = p === "/ws" ? wss : p === "/bridge" ? bwss : null;
+  if (!target) return socket.destroy();
+  target.handleUpgrade(req, socket, head, (ws) => target.emit("connection", ws, req));
+});
+
+// trame audio binaire : [type][len][nom utf8][PCM Int16 16 kHz mono]
+function audioPacket(type, name, pcm) {
+  const nb = Buffer.from(name, "utf8");
+  return Buffer.concat([Buffer.from([type, nb.length]), nb, pcm]);
+}
+function parsePacket(buf) {
+  if (buf.length < 2) return null;
+  const n = buf[1];
+  return { type: buf[0], name: buf.subarray(2, 2 + n).toString("utf8"), pcm: buf.subarray(2 + n) };
+}
+const near = (a, b, r) => a && b && a.dim === b.dim && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= r;
 
 function wsSend(ws, obj) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
@@ -215,12 +243,20 @@ function broadcastPositions() {
             z: p.z,
             yaw: p.yaw,
             onSite: clients.has(key(p.name)),
-            speaking: speaking.has(key(p.name)),
+            discord: discordActive.has(key(p.name)),
+            speaking: isSpeaking(key(p.name)),
             muted: p.gameMuted || !!clients.get(key(p.name))?.siteMuted,
           }))
       : [];
     wsSend(ws, { t: "pos", game: gameOnline, me, players: others });
+    // le navigateur n'envoie son micro au serveur que si un joueur Discord est à portée
+    const up = !!bridge && !!me && [...discordActive.keys()].some((dk) => near(players.get(dk), me, RANGE + 4));
+    if (up !== !!ws.uplink) {
+      ws.uplink = up;
+      wsSend(ws, { t: "uplink", v: up });
+    }
   }
+  if (bridge) wsSend(bridge, { t: "pos", range: RANGE, players: all });
 }
 // au cas où le jeu ne pousse rien (serveur MC éteint), on prévient quand même les pages
 setInterval(() => {
@@ -234,7 +270,15 @@ wss.on("connection", (ws) => {
 
   const authTimer = setTimeout(() => !ws.name && ws.close(), 15000);
 
-  ws.on("message", (raw) => {
+  ws.on("message", (raw, isBinary) => {
+    if (isBinary) {
+      // micro d'un joueur du site → pont Discord
+      if (ws.name && ws.uplink && bridge && !ws.siteMuted && raw.length >= 2 && raw[0] === 2) {
+        const me = players.get(ws.k);
+        if (me && !me.gameMuted) bridge.send(audioPacket(2, ws.name, raw.subarray(1)));
+      }
+      return;
+    }
     let m;
     try {
       m = JSON.parse(raw);
@@ -303,9 +347,77 @@ wss.on("connection", (ws) => {
   });
 });
 
+// ───────────── Pont Discord ─────────────
+bwss.on("connection", (ws) => {
+  ws.ok = false;
+  ws.alive = true;
+  ws.on("pong", () => (ws.alive = true));
+  const t = setTimeout(() => !ws.ok && ws.close(), 10000);
+  ws.on("message", (raw, isBinary) => {
+    if (!ws.ok) {
+      let m;
+      try { m = JSON.parse(raw); } catch { return ws.close(); }
+      if (m.t !== "hello" || !safeEqual(m.key || "", MC_KEY)) return ws.close();
+      clearTimeout(t);
+      ws.ok = true;
+      if (bridge && bridge !== ws) bridge.close();
+      bridge = ws;
+      console.log("Pont Discord connecté");
+      for (const [k, v] of prefs) wsSend(ws, { t: "prefs", name: k, v });
+      broadcastPositions();
+      return;
+    }
+    if (isBinary) {
+      // voix d'un joueur Discord → navigateurs à portée
+      const pk = parsePacket(raw);
+      if (!pk || pk.type !== 1) return;
+      const src = players.get(key(pk.name));
+      if (!src || src.gameMuted) return;
+      const out = audioPacket(1, src.name, pk.pcm);
+      for (const [k, c] of clients) {
+        if (c.readyState === 1 && near(players.get(k), src, RANGE + 4)) c.send(out);
+      }
+      return;
+    }
+    let m;
+    try { m = JSON.parse(raw); } catch { return; }
+    if (m.t === "active") {
+      discordActive.clear();
+      for (const n of m.list || []) discordActive.set(key(n), n);
+      broadcastPositions();
+    } else if (m.t === "speaking") {
+      if (m.v) discordSpeaking.add(key(m.name || ""));
+      else discordSpeaking.delete(key(m.name || ""));
+    } else if (m.t === "link") {
+      // /lier dans Discord : même code que /vocal
+      const code = String(m.code || "").trim().toUpperCase();
+      const c = codes.get(code);
+      if (!c || c.exp < Date.now()) return wsSend(ws, { t: "linkerr", reqId: m.reqId, msg: "Code invalide ou expiré. Refais /vocal en jeu." });
+      codes.delete(code);
+      wsSend(ws, { t: "linked", reqId: m.reqId, name: c.name });
+    }
+  });
+  ws.on("close", () => {
+    if (bridge === ws) {
+      bridge = null;
+      discordActive.clear();
+      discordSpeaking.clear();
+      console.log("Pont Discord déconnecté");
+      broadcastPositions();
+    }
+  });
+});
+
+// garde Render éveillé (le plan gratuit s'endort après 15 min sans visite)
+if (process.env.RENDER_EXTERNAL_URL) {
+  setInterval(() => {
+    require("https").get(process.env.RENDER_EXTERNAL_URL + "/health", (r) => r.resume()).on("error", () => {});
+  }, 10 * 60 * 1000);
+}
+
 // ping régulier pour détecter les connexions mortes (et garder Render éveillé)
 setInterval(() => {
-  for (const ws of wss.clients) {
+  for (const ws of [...wss.clients, ...bwss.clients]) {
     if (!ws.alive) {
       ws.terminate();
       continue;

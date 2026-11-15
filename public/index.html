@@ -157,7 +157,7 @@ const S = {
   me:null, players:[], game:false,
   ctx:null, master:null, local:null, micTrack:null,
   siteMuted:false, gameMuted:false, deaf:false, gameDeaf:false, speaking:false, masterVol:1,
-  peers:new Map(), vol:JSON.parse(store.get("gv_vol")||"{}"),
+  peers:new Map(), vpeers:new Map(), uplink:false, upNode:null, vol:JSON.parse(store.get("gv_vol")||"{}"),
   retry:0, closedByUs:false, started:false,
 };
 const head = (n) => `https://mc-heads.net/avatar/${encodeURIComponent(n)}/64`;
@@ -193,6 +193,7 @@ async function start(authMsg, errEl){
     return;
   }
   if (!S.master){ S.master = S.ctx.createGain(); S.master.connect(S.ctx.destination); }
+  await setupWorklets();
   connectWs(authMsg, errEl);
 }
 
@@ -211,6 +212,7 @@ async function openMic(deviceId){
   }
   if (old) old.getTracks().forEach(t=>t.stop());
   setupMeter();
+  connectUplink();
   listMics();
 }
 
@@ -227,9 +229,11 @@ $("micSel").onchange = async (e) => { store.set("gv_mic", e.target.value); try {
 function connectWs(authMsg, errEl){
   S.closedByUs = false;
   const ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
+  ws.binaryType = "arraybuffer";
   S.ws = ws;
   ws.onopen = () => ws.send(JSON.stringify(authMsg));
   ws.onmessage = (ev) => {
+    if (typeof ev.data !== "string"){ onBridgeAudio(ev.data); return; }
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     switch (m.t){
       case "ready":
@@ -245,6 +249,7 @@ function connectWs(authMsg, errEl){
       case "signal": onSignal(m.from, m.data); break;
       case "left": closePeer(m.name); break;
       case "prefs": applyPrefs(m.v || {}); break;
+      case "uplink": S.uplink = !!m.v; break;
       case "replaced":
         S.closedByUs = true; status("bad","Ouvert sur un autre appareil"); closeAll(); break;
       case "unlinked":
@@ -307,6 +312,12 @@ function onPositions(m){
     if (pp) placePeer(pp, p);
   }
   for (const n of [...S.peers.keys()]) if (!seen.has(n)) closePeer(n);
+  // joueurs Discord (audio relayé par le serveur)
+  for (const [n, vp] of S.vpeers){
+    const p = S.players.find(x => x.name === n);
+    if (!p || !p.discord || (S.me && dist(p, S.me) > S.range + 20)) closeVPeer(n);
+    else placePeer(vp, p);
+  }
   renderList();
 }
 
@@ -447,6 +458,111 @@ function closePeer(name){
 }
 function closeAll(){ for (const n of [...S.peers.keys()]) closePeer(n); }
 
+// ═════════════════ pont Discord : audio relayé par le serveur ═════════════════
+const WORKLET = `
+class Up extends AudioWorkletProcessor {
+  constructor(){ super(); this.ratio = sampleRate / 16000; this.pos = 0; this.buf = new Int16Array(320); this.n = 0; this.acc = 0; this.cnt = 0; }
+  process(inputs){
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++){
+      this.acc += ch[i]; this.cnt++;               // moyenne = petit filtre anti-repliement
+      this.pos += 1;
+      if (this.pos >= this.ratio){
+        this.pos -= this.ratio;
+        const v = Math.max(-1, Math.min(1, this.acc / this.cnt));
+        this.acc = 0; this.cnt = 0;
+        this.buf[this.n++] = v * 32767;
+        if (this.n === 320){ this.port.postMessage(this.buf.buffer, [this.buf.buffer]); this.buf = new Int16Array(320); this.n = 0; }
+      }
+    }
+    return true;
+  }
+}
+class Down extends AudioWorkletProcessor {
+  constructor(){
+    super(); this.size = sampleRate * 2; this.ring = new Float32Array(this.size); this.r = 0; this.w = 0; this.fill = 0;
+    this.started = false; this.target = Math.round(sampleRate * 0.06); this.step = 16000 / sampleRate; this.last = 0;
+    this.port.onmessage = (e) => {
+      const pcm = new Int16Array(e.data);
+      const outLen = Math.round(pcm.length / this.step);
+      for (let i = 0; i < outLen; i++){
+        const x = i * this.step, j = Math.floor(x), f = x - j;
+        const a = pcm[j] / 32768, b = (j + 1 < pcm.length ? pcm[j + 1] : pcm[j]) / 32768;
+        this.ring[this.w] = a + (b - a) * f; this.w = (this.w + 1) % this.size;
+        if (this.fill < this.size) this.fill++; else this.r = (this.r + 1) % this.size;
+      }
+      // trop de retard accumulé : on saute pour rester en temps réel
+      if (this.fill > this.target * 4){ const skip = this.fill - this.target; this.r = (this.r + skip) % this.size; this.fill -= skip; }
+    };
+  }
+  process(_, outputs){
+    const out = outputs[0][0];
+    if (!this.started && this.fill >= this.target) this.started = true;
+    for (let i = 0; i < out.length; i++){
+      if (this.started && this.fill > 0){ out[i] = this.ring[this.r]; this.r = (this.r + 1) % this.size; this.fill--; }
+      else { out[i] = 0; this.started = false; }
+    }
+    return true;
+  }
+}
+registerProcessor("gv-up", Up);
+registerProcessor("gv-down", Down);`;
+
+async function setupWorklets(){
+  if (S.workletReady || !S.ctx.audioWorklet) return;
+  try {
+    const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+    await S.ctx.audioWorklet.addModule(url);
+    S.workletReady = true;
+    connectUplink();
+  } catch (e) { console.warn("worklet", e); }
+}
+
+function connectUplink(){
+  if (!S.workletReady || !S.local) return;
+  try { S.upSrc && S.upSrc.disconnect(); } catch {}
+  if (!S.upNode){
+    S.upNode = new AudioWorkletNode(S.ctx, "gv-up", { numberOfOutputs: 0 });
+    S.upNode.port.onmessage = (e) => {
+      if (!S.uplink || isMicOff() || !S.ws || S.ws.readyState !== 1) return;
+      const pcm = new Uint8Array(e.data), pkt = new Uint8Array(pcm.length + 1);
+      pkt[0] = 2; pkt.set(pcm, 1);
+      S.ws.send(pkt.buffer);
+    };
+  }
+  S.upSrc = S.ctx.createMediaStreamSource(S.local);
+  S.upSrc.connect(S.upNode);
+}
+
+function onBridgeAudio(buf){
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== 1 || !S.workletReady) return;
+  const n = u8[1], name = new TextDecoder().decode(u8.subarray(2, 2 + n));
+  const pcm = buf.slice(2 + n);
+  let vp = S.vpeers.get(name);
+  if (!vp){
+    vp = { name, node: new AudioWorkletNode(S.ctx, "gv-down", { numberOfInputs: 0, outputChannelCount: [1] }) };
+    vp.gain = S.ctx.createGain(); vp.gain.gain.value = (S.vol[name.toLowerCase()] ?? 100) / 100;
+    vp.filter = S.ctx.createBiquadFilter(); vp.filter.type = "lowpass"; vp.filter.Q.value = 0.6; vp.filter.frequency.value = 8000;
+    vp.dist = S.ctx.createGain(); vp.dist.gain.value = 0;
+    vp.panner = S.ctx.createPanner(); vp.panner.panningModel = "HRTF"; vp.panner.distanceModel = "linear";
+    vp.panner.refDistance = 1; vp.panner.maxDistance = 10000; vp.panner.rolloffFactor = 0;
+    vp.node.connect(vp.gain).connect(vp.filter).connect(vp.dist).connect(vp.panner).connect(S.master);
+    S.vpeers.set(name, vp);
+    const p = S.players.find(x => x.name === name);
+    if (p) placePeer(vp, p);
+  }
+  vp.node.port.postMessage(pcm, [pcm]);
+}
+
+function closeVPeer(name){
+  const vp = S.vpeers.get(name);
+  if (!vp) return;
+  S.vpeers.delete(name);
+  try { vp.node.disconnect(); vp.panner.disconnect(); } catch {}
+}
+
 // ═════════════════ micro / sourdine ═════════════════
 const isMicOff = () => S.siteMuted || S.gameMuted || S.deaf;
 function applyMic(){
@@ -474,7 +590,7 @@ function applyPrefs(v){
   for (const [k, vol] of Object.entries(v)){
     if (k === "*"){ S.masterVol = vol / 100; if (S.master && !S.deaf) S.master.gain.setTargetAtTime(S.masterVol, S.ctx.currentTime, .05); continue; }
     S.vol[k] = vol;
-    for (const p of S.peers.values()) if (p.name.toLowerCase() === k && p.gain) p.gain.gain.setTargetAtTime(vol/100, S.ctx.currentTime, .05);
+    for (const p of [...S.peers.values(), ...S.vpeers.values()]) if (p.name.toLowerCase() === k && p.gain) p.gain.gain.setTargetAtTime(vol/100, S.ctx.currentTime, .05);
   }
   store.set("gv_vol", JSON.stringify(S.vol));
   renderList();
@@ -511,11 +627,11 @@ function renderList(){
   const html = near.map(p => {
     const k = p.name.toLowerCase(), v = S.vol[k] ?? 100;
     const peer = S.peers.get(p.name);
-    const state = !p.onSite ? "Pas sur le site" : p.muted ? "Micro coupé" : !peer ? "Connexion…" : peer.pc.connectionState === "connected" ? "En ligne" : "Connexion…";
+    const state = p.discord ? (p.muted ? "Discord · micro coupé" : "Sur Discord") : !p.onSite ? "Pas sur le vocal" : p.muted ? "Micro coupé" : !peer ? "Connexion…" : peer.pc.connectionState === "connected" ? "En ligne" : "Connexion…";
     return `<div class="pl ${p.speaking && !p.muted ? "talk":""}" data-n="${k}">
       <img src="${head(p.name)}" alt="" onerror="this.style.visibility='hidden'">
       <div><div class="n">${esc(p.name)}</div><div class="d">${Math.round(p.d)} blocs · ${state}</div></div>
-      <input type="range" min="0" max="200" value="${v}" aria-label="Volume de ${esc(p.name)}" ${p.onSite?"":"disabled"}>
+      <input type="range" min="0" max="200" value="${v}" aria-label="Volume de ${esc(p.name)}" ${p.onSite||p.discord?"":"disabled"}>
     </div>`;
   }).join("");
   // évite de casser un slider en cours d'utilisation
@@ -527,7 +643,7 @@ $("list").addEventListener("input", (e) => {
   if (e.target.type !== "range") return;
   const k = e.target.closest(".pl").dataset.n, v = +e.target.value;
   S.vol[k] = v; store.set("gv_vol", JSON.stringify(S.vol));
-  for (const p of S.peers.values()) if (p.name.toLowerCase() === k && p.gain) p.gain.gain.setTargetAtTime(v/100, S.ctx.currentTime, .03);
+  for (const p of [...S.peers.values(), ...S.vpeers.values()]) if (p.name.toLowerCase() === k && p.gain) p.gain.gain.setTargetAtTime(v/100, S.ctx.currentTime, .03);
 });
 
 // ═════════════════ radar ═════════════════

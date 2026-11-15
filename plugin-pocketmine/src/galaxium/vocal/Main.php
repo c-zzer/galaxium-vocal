@@ -44,9 +44,9 @@ final class Main extends PluginBase implements Listener {
 
 	/** titre invisible (codes couleur uniquement) lu par le resource pack */
 	private const HUD_MARK = "§v§c§o";
-	private const HUD_CODE = ["off" => "0", "on" => "1", "talk" => "2", "mute" => "3"];
+	private const HUD_CODE = ["off" => "0", "on" => "1", "talk" => "2", "mute" => "3", "deaf" => "4"];
 	/** icônes de la police glyph_EA du resource pack */
-	private const ICON = ["talk" => "\u{EA00}", "on" => "\u{EA01}", "mute" => "\u{EA02}"];
+	private const ICON = ["talk" => "\u{EA00}", "on" => "\u{EA01}", "mute" => "\u{EA02}", "deaf" => "\u{EA03}"];
 
 	protected function onEnable() : void {
 		$this->saveDefaultConfig();
@@ -290,7 +290,8 @@ final class Main extends PluginBase implements Listener {
 	private function stateOf(Player $o) : string {
 		$n = $o->getName();
 		if (!isset($this->linked[$n])) return "0";
-		if ($this->isMuted($o) || isset($this->siteMuted[$n]) || isset($this->deaf[strtolower($n)])) return "3";
+		if (isset($this->deaf[strtolower($n)])) return "4";
+		if ($this->isMuted($o) || isset($this->siteMuted[$n])) return "3";
 		return isset($this->speaking[$n]) ? "2" : "1";
 	}
 
@@ -348,7 +349,8 @@ final class Main extends PluginBase implements Listener {
 		foreach ($this->getServer()->getOnlinePlayers() as $p) {
 			$n = $p->getName();
 			if (!isset($this->linked[$n])) $state = "off";
-			elseif ($this->isMuted($p) || isset($this->siteMuted[$n]) || isset($this->deaf[strtolower($n)])) $state = "mute";
+			elseif (isset($this->deaf[strtolower($n)])) $state = "deaf";
+			elseif ($this->isMuted($p) || isset($this->siteMuted[$n])) $state = "mute";
 			elseif (isset($this->speaking[$n])) $state = "talk";
 			else $state = "on";
 			if ($this->hud && ($this->hudState[$n] ?? "off") !== $state) {
@@ -362,7 +364,7 @@ final class Main extends PluginBase implements Listener {
 	/** Icône de son à gauche du pseudo (au-dessus de la tête). Résiste aux plugins qui réécrivent le nametag. */
 	private function applyNameTagIcon(Player $p, string $state) : void {
 		$tag = $p->getNameTag();
-		$clean = (string) preg_replace('/[\x{EA00}-\x{EA02}] ?/u', '', $tag);
+		$clean = (string) preg_replace('/[\x{EA00}-\x{EA03}] ?/u', '', $tag);
 		$icon = self::ICON[$state] ?? "";
 		if ($icon === "") {
 			$want = $clean;

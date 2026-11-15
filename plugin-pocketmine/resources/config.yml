@@ -2,7 +2,7 @@
 # Adresse du site (sans / à la fin)
 site_url: "https://galaxium-vocal.onrender.com"
 # Clé secrète : doit être identique à MC_KEY sur Render
-key: "gv-1879571ad7f97ee43409eab0"
+key: "change-moi"
 # Envoi des positions toutes les X ticks (4 = 5 fois par seconde)
 sync_ticks: 4
 # Icône du micro en bas à droite (JSON UI, resource pack envoyé automatiquement)
