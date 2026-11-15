@@ -1,0 +1,15 @@
+name: GalaxiumVocal
+main: galaxium\vocal\Main
+version: 1.0.1
+api: ["5.0.0"]
+author: c-zzer
+description: "Chat vocal de proximité Galaxium (site galaxium-vocal) — /vocal"
+commands:
+  vocal:
+    description: "Vocal de proximité : /vocal [code|mute|unmute|status|unlink]"
+    usage: "/vocal [code|mute|unmute|status|unlink]"
+    permission: galaxiumvocal.command
+permissions:
+  galaxiumvocal.command:
+    description: "Utiliser /vocal"
+    default: true

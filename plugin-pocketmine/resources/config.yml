@@ -1,0 +1,11 @@
+# Galaxium Vocal — configuration
+# Adresse du site (sans / à la fin)
+site_url: "https://galaxium-vocal.onrender.com"
+# Clé secrète : doit être identique à MC_KEY sur Render
+key: "gv-1879571ad7f97ee43409eab0"
+# Envoi des positions toutes les X ticks (4 = 5 fois par seconde)
+sync_ticks: 4
+# Indicateur "Vocal connecté" dans l'actionbar des joueurs reliés
+actionbar: true
+# Message de bienvenue à la connexion
+join_message: true
