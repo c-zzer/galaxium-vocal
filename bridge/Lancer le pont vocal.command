@@ -23,35 +23,39 @@ if [ ! -d node_modules ]; then
   npm install --no-fund --no-audit --loglevel=error || { echo "❌ Erreur d'installation."; read -p "Entrée pour fermer…"; exit 1; }
 fi
 
-# ── 3. Tokens des bots : on ouvre la page de chaque bot, tu colles juste le token ──
+# ── 3. Tokens des bots : rien à coller ! Le script lit le presse-papiers quand tu cliques « Copy » ──
 touch tokens.txt
 have=$(grep -v '^#' tokens.txt | grep -c .)
 total=$(grep -c . bots.txt)
 if [ "$have" -lt "$total" ]; then
   echo ""
-  echo "🔑 Il manque $((total - have)) token(s). Pour chaque bot, une page Discord va s'ouvrir :"
-  echo "   clique « Reset Token » → « Yes, do it! » → « Copy », puis colle ici (Cmd+V) et Entrée."
-  echo "   (Le token ne s'affiche pas quand tu le colles, c'est normal. Entrée vide = passer.)"
+  echo "🔑 Il manque $((total - have)) token(s)."
+  echo "   Pour chaque bot, sa page Discord s'ouvre : clique « Reset Token » → « Yes, do it! » → « Copy »."
+  echo "   C'est tout : le token est détecté automatiquement et la page du bot suivant s'ouvre."
+  last=$(pbpaste 2>/dev/null)
   i=0
-  while read -r id; do
+  while read -r id <&3; do
     i=$((i+1))
     [ -z "$id" ] && continue
     [ "$i" -le "$have" ] && continue
     open "https://discord.com/developers/applications/$id/bot"
+    echo ""
+    echo "⏳ Bot Zgegy Vocal $i : en attente du clic sur « Copy »…"
     while true; do
-      echo ""
-      read -r -s -p "➡️  Token du bot Zgegy Vocal $i : " tok < /dev/tty; echo
-      tok=$(printf "%s" "$tok" | tr -d '[:space:]')
-      if [ -z "$tok" ]; then echo "   ⏭  Passé"; break; fi
-      if [ "$(printf "%s" "$tok" | tr -cd '.' | wc -c | tr -d ' ')" -ne 2 ]; then
-        echo "   ⚠️  Ça ne ressemble pas à un token (il doit contenir 2 points). Recommence."; continue
+      clip=$(pbpaste 2>/dev/null | tr -d '[:space:]')
+      if [ "$clip" != "$last" ] && printf "%s" "$clip" | grep -Eq '^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{20,}$'; then
+        if grep -qxF "$clip" tokens.txt; then last="$clip"; continue; fi
+        echo "$clip" >> tokens.txt
+        last="$clip"
+        printf "" | pbcopy   # on vide le presse-papiers par sécurité
+        echo "   ✅ Bot $i enregistré"
+        break
       fi
-      echo "$tok" >> tokens.txt
-      echo "   ✅ Bot $i enregistré"
-      break
+      sleep 0.4
     done
-  done < bots.txt
+  done 3< bots.txt
   echo ""
+  echo "🎉 Tous les tokens sont enregistrés."
 fi
 
 # ── 4. Lancement (le Mac ne se met pas en veille tant que cette fenêtre est ouverte) ──
