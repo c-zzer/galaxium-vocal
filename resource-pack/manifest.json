@@ -1,0 +1,13 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "§dGalaxium Vocal §7HUD",
+    "description": "Indicateur du micro (vocal de proximité) en bas à droite",
+    "uuid": "08f99a01-3363-4e98-8b2d-74c667bd218e",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    { "type": "resources", "uuid": "cfdddc67-5b5b-4c48-b546-0313c12818d4", "version": [1, 0, 0] }
+  ]
+}

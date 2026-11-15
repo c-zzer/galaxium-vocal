@@ -1,6 +1,6 @@
 name: GalaxiumVocal
 main: galaxium\vocal\Main
-version: 1.0.1
+version: 1.1.0
 api: ["5.0.0"]
 author: c-zzer
 description: "Chat vocal de proximité Galaxium (site galaxium-vocal) — /vocal"

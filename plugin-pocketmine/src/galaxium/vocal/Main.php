@@ -11,6 +11,8 @@ use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
 use pocketmine\scheduler\ClosureTask;
+use pocketmine\event\player\PlayerQuitEvent;
+use pocketmine\resourcepacks\ZippedResourcePack;
 
 final class Main extends PluginBase implements Listener {
 
@@ -27,6 +29,11 @@ final class Main extends PluginBase implements Listener {
 	private array $speaking = [];
 	/** @var array<string, true> micro coupé en jeu (clé = nom en minuscules) */
 	private array $muted = [];
+	/** @var array<string, true> micro coupé depuis le site */
+	private array $siteMuted = [];
+	/** @var array<string, string> dernier état HUD envoyé à chaque joueur */
+	private array $hudState = [];
+	private bool $hud = true;
 
 	protected function onEnable() : void {
 		$this->saveDefaultConfig();
@@ -42,10 +49,26 @@ final class Main extends PluginBase implements Listener {
 
 		$this->getServer()->getPluginManager()->registerEvents($this, $this);
 
+		// Resource pack de l'indicateur micro (JSON UI), chargé automatiquement
+		$this->hud = (bool) $this->getConfig()->get("hud", true);
+		if ($this->hud) {
+			try {
+				$this->saveResource("GalaxiumVocalRP.zip", true);
+				$pack = new ZippedResourcePack($this->getDataFolder() . "GalaxiumVocalRP.zip");
+				$manager = $this->getServer()->getResourcePackManager();
+				$stack = $manager->getResourceStack();
+				$stack[] = $pack;
+				$manager->setResourceStack($stack);
+				$this->getLogger()->info("Resource pack HUD micro chargé");
+			} catch (\Throwable $e) {
+				$this->getLogger()->warning("Resource pack HUD non chargé : " . $e->getMessage());
+			}
+		}
+
 		$ticks = max(2, (int) $this->getConfig()->get("sync_ticks", 4));
 		$this->getScheduler()->scheduleRepeatingTask(new ClosureTask(fn() => $this->sync()), $ticks);
 
-		if ((bool) $this->getConfig()->get("actionbar", true)) {
+		if ((bool) $this->getConfig()->get("actionbar", false)) {
 			$this->getScheduler()->scheduleRepeatingTask(new ClosureTask(function() : void {
 				foreach ($this->getServer()->getOnlinePlayers() as $p) {
 					if (!isset($this->linked[$p->getName()])) continue;
@@ -103,6 +126,8 @@ final class Main extends PluginBase implements Listener {
 			$this->failCount = 0;
 			$this->linked = array_fill_keys(array_map("strval", (array) ($data["linked"] ?? [])), true);
 			$this->speaking = array_fill_keys(array_map("strval", (array) ($data["speaking"] ?? [])), true);
+			$this->siteMuted = array_fill_keys(array_map("strval", (array) ($data["muted"] ?? [])), true);
+			if ($this->hud) $this->updateHud();
 			return;
 		}
 
@@ -161,6 +186,25 @@ final class Main extends PluginBase implements Listener {
 		$this->getServer()->getAsyncPool()->submitTask(new HttpTask(
 			$this->siteUrl . $path, $this->key, (string) json_encode($body), $timeout, $kind, $player
 		));
+	}
+
+	/** Envoie l'état du micro au HUD (titre invisible "gvc:...") seulement quand il change */
+	private function updateHud() : void {
+		foreach ($this->getServer()->getOnlinePlayers() as $p) {
+			$n = $p->getName();
+			if (!isset($this->linked[$n])) $state = "off";
+			elseif ($this->isMuted($p) || isset($this->siteMuted[$n])) $state = "mute";
+			elseif (isset($this->speaking[$n])) $state = "talk";
+			else $state = "on";
+			if (($this->hudState[$n] ?? "off") !== $state) {
+				$this->hudState[$n] = $state;
+				$p->sendTitle("gvc:" . $state);
+			}
+		}
+	}
+
+	public function onQuit(PlayerQuitEvent $e) : void {
+		unset($this->hudState[$e->getPlayer()->getName()]);
 	}
 
 	public function onJoin(PlayerJoinEvent $e) : void {

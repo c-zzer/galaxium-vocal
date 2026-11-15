@@ -5,7 +5,9 @@ site_url: "https://galaxium-vocal.onrender.com"
 key: "gv-1879571ad7f97ee43409eab0"
 # Envoi des positions toutes les X ticks (4 = 5 fois par seconde)
 sync_ticks: 4
-# Indicateur "Vocal connecté" dans l'actionbar des joueurs reliés
-actionbar: true
+# Icône du micro en bas à droite (JSON UI, resource pack envoyé automatiquement)
+hud: true
+# Ancien indicateur texte dans l'actionbar (désactivé, remplacé par l'icône)
+actionbar: false
 # Message de bienvenue à la connexion
 join_message: true

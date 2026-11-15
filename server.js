@@ -136,6 +136,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, {
         linked: [...clients.keys()].filter((k) => online.has(k)).map((k) => players.get(k).name),
         speaking: [...speaking].filter((k) => online.has(k)).map((k) => players.get(k).name),
+        muted: [...clients.entries()].filter(([k, w]) => online.has(k) && w.siteMuted).map(([k]) => players.get(k).name),
       });
     }
 
