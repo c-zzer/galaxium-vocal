@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0b">
+<title>Galaxium Vocal</title>
+<style>
+  :root{
+    --bg:#0a0a0b; --panel:#131316; --panel2:#1a1a1f; --line:#26262d; --text:#f4f4f6; --mute:#8b8b96;
+    --accent:#FC78F8; --accent-d:#c94fc6; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --r:18px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--text);font:15px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100dvh;display:flex;justify-content:center;padding:max(20px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+  body::before{content:"";position:fixed;inset:-30% -30% auto auto;width:70vmax;height:70vmax;border-radius:50%;background:radial-gradient(closest-side,rgba(252,120,248,.13),transparent);pointer-events:none;z-index:0}
+  main{position:relative;z-index:1;width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px}
+  .brand{display:flex;align-items:center;gap:10px;margin:4px 2px 6px}
+  .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#7c5cff);display:grid;place-items:center}
+  .logo svg{width:18px;height:18px}
+  .brand b{font-size:15px;letter-spacing:.14em;text-transform:uppercase}
+  .brand span{color:var(--mute);font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+  h1{font-size:24px;font-weight:650;letter-spacing:-.02em}
+  p.sub{color:var(--mute);margin-top:6px}
+  kbd{font:600 13px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 7px;color:var(--accent)}
+  .steps{display:grid;gap:10px;margin:18px 0}
+  .step{display:flex;gap:12px;align-items:flex-start;color:var(--mute)}
+  .step i{flex:none;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font:600 12px ui-monospace,monospace;font-style:normal;color:var(--text)}
+  .code{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:14px;color:var(--text);text-align:center;font:700 30px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.42em;padding:16px 0 16px .42em;text-transform:uppercase;outline:none;transition:border-color .2s}
+  .code:focus{border-color:var(--accent)}
+  .btn{appearance:none;border:0;cursor:pointer;width:100%;margin-top:12px;padding:15px;border-radius:14px;font:650 15px inherit;font-family:inherit;background:var(--accent);color:#1b0a1b;transition:transform .1s,opacity .2s}
+  .btn:active{transform:scale(.98)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+  .err{color:var(--bad);font-size:13px;min-height:18px;margin-top:10px;text-align:center}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .who{display:flex;align-items:center;gap:12px}
+  .avatar{width:42px;height:42px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);image-rendering:pixelated}
+  .who b{display:block;font-size:16px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--mute)}
+  .dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(74,222,128,.15)}
+  .dot.warn{background:var(--warn)}
+  .dot.bad{background:var(--bad)}
+  .controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .ctl{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 10px;border-radius:16px;background:var(--panel2);border:1px solid var(--line);color:var(--text);cursor:pointer;font:600 13px inherit;font-family:inherit;position:relative;overflow:hidden;transition:border-color .2s,background .2s}
+  .ctl svg{width:26px;height:26px}
+  .ctl.off{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.08);color:var(--bad)}
+  .ctl small{color:var(--mute);font-weight:500}
+  .meter{position:absolute;left:0;bottom:0;height:3px;background:var(--accent);width:0;transition:width .08s}
+  .banner{font-size:13px;padding:10px 14px;border-radius:12px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);color:var(--warn);display:none}
+  .banner.show{display:block}
+  .banner.red{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.35);color:var(--bad)}
+  canvas#radar{width:100%;aspect-ratio:1;display:block;border-radius:14px;background:var(--bg)}
+  .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin-bottom:10px}
+  .list{display:grid;gap:8px}
+  .pl{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);transition:border-color .15s}
+  .pl.talk{border-color:var(--accent);box-shadow:0 0 0 3px rgba(252,120,248,.12)}
+  .pl img{width:30px;height:30px;border-radius:8px;image-rendering:pixelated;background:var(--bg)}
+  .pl .n{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pl .d{font-size:12px;color:var(--mute)}
+  .pl input{width:84px;accent-color:var(--accent)}
+  .empty{color:var(--mute);font-size:13px;text-align:center;padding:14px 0}
+  .foot{display:flex;justify-content:space-between;gap:10px;color:var(--mute);font-size:12px;padding:0 4px}
+  .foot a{color:var(--mute);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;margin-top:4px}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#1b0a1b" stroke-width="2.4" stroke-linecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg></div>
+    <div><b>Galaxium</b> <span>· Vocal de proximité</span></div>
+  </div>
+
+  <!-- ÉCRAN 1 : LIAISON -->
+  <section id="linkView" class="card">
+    <h1>Relie ton compte</h1>
+    <p class="sub">Parle aux joueurs proches de toi en jeu, directement depuis ton navigateur.</p>
+    <div class="steps">
+      <div class="step"><i>1</i><div>Sur le serveur, tape <kbd>/vocal</kbd></div></div>
+      <div class="step"><i>2</i><div>Entre le code à 6 caractères affiché dans le chat</div></div>
+      <div class="step"><i>3</i><div>Autorise le micro, garde cette page ouverte</div></div>
+    </div>
+    <input id="code" class="code" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="······" inputmode="text">
+    <button id="linkBtn" class="btn" disabled>Se connecter</button>
+    <div id="linkErr" class="err"></div>
+  </section>
+
+  <!-- ÉCRAN 1bis : session existante -->
+  <section id="resumeView" class="card hidden">
+    <h1>Re-bonjour <span id="resumeName"></span></h1>
+    <p class="sub">Ta session est encore valide. Appuie pour réactiver le micro.</p>
+    <button id="resumeBtn" class="btn">Rejoindre le vocal</button>
+    <button id="forgetBtn" class="btn ghost">Utiliser un autre code</button>
+    <div id="resumeErr" class="err"></div>
+  </section>
+
+  <!-- ÉCRAN 2 : VOCAL -->
+  <section id="voiceView" class="hidden" style="display:flex;flex-direction:column;gap:14px">
+    <div class="card row">
+      <div class="who">
+        <img id="meHead" class="avatar" alt="" onerror="this.style.visibility='hidden'">
+        <div><b id="meName">—</b><span class="pill"><span id="stDot" class="dot"></span><span id="stTxt">Connexion…</span></span></div>
+      </div>
+      <span class="pill" id="countTxt"></span>
+    </div>
+
+    <div id="bGame" class="banner">Tu n'es pas détecté en jeu. Connecte-toi au serveur pour être entendu.</div>
+    <div id="bMuted" class="banner red">Micro coupé depuis le jeu (<kbd>/vocal mute</kbd>). Refais la commande pour le réactiver.</div>
+
+    <div class="controls">
+      <button id="micBtn" class="ctl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <span id="micTxt">Micro actif</span><small>Appuie pour couper</small>
+        <div id="meter" class="meter"></div>
+      </button>
+      <button id="deafBtn" class="ctl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="3" y="14" width="4" height="7" rx="1.5"/><rect x="17" y="14" width="4" height="7" rx="1.5"/></svg>
+        <span id="deafTxt">Son actif</span><small>Appuie pour sourdine</small>
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="label">Radar · <span id="rangeTxt"></span> blocs</div>
+      <canvas id="radar" width="600" height="600"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="label">Joueurs à portée</div>
+      <div id="list" class="list"><div class="empty">Personne autour de toi pour l'instant.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Micro</div>
+      <select id="micSel"></select>
+    </div>
+
+    <div class="foot"><span>Garde cette page ouverte pendant que tu joues.</span><a id="logout">Se déconnecter</a></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+// ═════════════════ état ═════════════════
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch {} },
+  del(k){ try { localStorage.removeItem(k); } catch {} },
+};
+const S = {
+  ws:null, token:store.get("gv_token"), name:store.get("gv_name"), range:24, ice:[],
+  me:null, players:[], game:false,
+  ctx:null, master:null, local:null, micTrack:null,
+  siteMuted:false, gameMuted:false, deaf:false, speaking:false,
+  peers:new Map(), vol:JSON.parse(store.get("gv_vol")||"{}"),
+  retry:0, closedByUs:false, started:false,
+};
+const head = (n) => `https://mc-heads.net/avatar/${encodeURIComponent(n)}/64`;
+
+// ═════════════════ écrans ═════════════════
+function show(view){
+  for (const v of ["linkView","resumeView","voiceView"]) $(v).classList.toggle("hidden", v!==view);
+}
+if (S.token && S.name){ $("resumeName").textContent = S.name; show("resumeView"); } else show("linkView");
+
+const codeIn = $("code");
+codeIn.addEventListener("input", () => {
+  codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6);
+  $("linkBtn").disabled = codeIn.value.length !== 6;
+  $("linkErr").textContent = "";
+});
+codeIn.addEventListener("keydown", (e) => { if (e.key==="Enter" && codeIn.value.length===6) $("linkBtn").click(); });
+$("linkBtn").onclick = () => start({ t:"link", code:codeIn.value }, $("linkErr"));
+$("resumeBtn").onclick = () => start({ t:"auth", token:S.token }, $("resumeErr"));
+$("forgetBtn").onclick = () => { forget(); show("linkView"); };
+$("logout").onclick = () => { forget(); location.reload(); };
+function forget(){ store.del("gv_token"); store.del("gv_name"); S.token=null; S.name=null; }
+
+// ═════════════════ démarrage (geste utilisateur = débloque micro + audio) ═════════════════
+async function start(authMsg, errEl){
+  errEl.textContent = "";
+  try {
+    S.ctx = S.ctx || new (window.AudioContext||window.webkitAudioContext)();
+    await S.ctx.resume();
+    if (!S.local) await openMic(store.get("gv_mic"));
+  } catch (e) {
+    errEl.textContent = "Accès au micro refusé. Autorise-le dans les réglages du navigateur puis réessaie.";
+    return;
+  }
+  if (!S.master){ S.master = S.ctx.createGain(); S.master.connect(S.ctx.destination); }
+  connectWs(authMsg, errEl);
+}
+
+async function openMic(deviceId){
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio:{ deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 },
+  });
+  const old = S.local;
+  S.local = stream;
+  S.micTrack = stream.getAudioTracks()[0];
+  applyMic();
+  // remplace la piste dans les connexions existantes
+  for (const p of S.peers.values()){
+    const sender = p.pc.getSenders().find(s => s.track && s.track.kind==="audio");
+    if (sender) sender.replaceTrack(S.micTrack);
+  }
+  if (old) old.getTracks().forEach(t=>t.stop());
+  setupMeter();
+  listMics();
+}
+
+async function listMics(){
+  try{
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput");
+    const sel = $("micSel"), cur = S.micTrack?.getSettings?.().deviceId;
+    sel.innerHTML = devs.map((d,i)=>`<option value="${d.deviceId}" ${d.deviceId===cur?"selected":""}>${d.label||("Micro "+(i+1))}</option>`).join("");
+  }catch{}
+}
+$("micSel").onchange = async (e) => { store.set("gv_mic", e.target.value); try { await openMic(e.target.value); } catch {} };
+
+// ═════════════════ WebSocket ═════════════════
+function connectWs(authMsg, errEl){
+  S.closedByUs = false;
+  const ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
+  S.ws = ws;
+  ws.onopen = () => ws.send(JSON.stringify(authMsg));
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    switch (m.t){
+      case "ready":
+        S.retry = 0; S.name = m.name; S.token = m.token; S.range = m.range; S.ice = m.ice;
+        store.set("gv_token", m.token); store.set("gv_name", m.name);
+        enterVoice(); break;
+      case "error":
+        if (m.reset) forget();
+        if (errEl) errEl.textContent = m.msg;
+        if (S.started && m.reset) location.reload();
+        S.closedByUs = true; ws.close(); break;
+      case "pos": onPositions(m); break;
+      case "signal": onSignal(m.from, m.data); break;
+      case "left": closePeer(m.name); break;
+      case "replaced":
+        S.closedByUs = true; status("bad","Ouvert sur un autre appareil"); closeAll(); break;
+      case "unlinked":
+        S.closedByUs = true; forget(); location.reload(); break;
+    }
+  };
+  ws.onclose = () => {
+    if (S.closedByUs || !S.started) return;
+    status("warn","Reconnexion…");
+    closeAll();
+    const wait = Math.min(1000 * 2 ** S.retry++, 15000);
+    setTimeout(() => connectWs({ t:"auth", token:S.token }), wait);
+  };
+}
+const wsSend = (o) => S.ws && S.ws.readyState===1 && S.ws.send(JSON.stringify(o));
+
+function enterVoice(){
+  if (!S.started){
+    S.started = true;
+    show("voiceView");
+    $("meName").textContent = S.name;
+    $("meHead").src = head(S.name);
+    $("rangeTxt").textContent = S.range;
+    requestWake();
+    requestAnimationFrame(drawRadar);
+  }
+  status("warn","En attente du jeu…");
+  wsSend({ t:"mute", v: isMicOff() });
+}
+
+function status(kind, txt){ $("stDot").className = "dot "+kind; $("stTxt").textContent = txt; }
+
+// ═════════════════ positions ═════════════════
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z); }
+
+function onPositions(m){
+  S.game = m.game; S.me = m.me; S.players = m.players || [];
+  const inGame = !!m.me;
+  if (!m.game) status("bad","Serveur Minecraft hors ligne");
+  else if (!inGame) status("warn","Pas connecté en jeu");
+  else status("ok","Connecté en jeu");
+  $("bGame").classList.toggle("show", m.game && !inGame);
+
+  const gm = !!(m.me && m.me.gameMuted);
+  if (gm !== S.gameMuted){ S.gameMuted = gm; applyMic(); }
+  $("bMuted").classList.toggle("show", S.gameMuted);
+
+  updateListener();
+  const seen = new Set();
+  for (const p of S.players){
+    if (!p.onSite || !S.me) continue;
+    const d = dist(p, S.me);
+    seen.add(p.name);
+    const peer = S.peers.get(p.name);
+    if (!peer && d < S.range + 8 && S.name.toLowerCase() < p.name.toLowerCase()) createPeer(p.name, true);
+    else if (peer && d > S.range + 20) closePeer(p.name);
+    const pp = S.peers.get(p.name);
+    if (pp) placePeer(pp, p);
+  }
+  for (const n of [...S.peers.keys()]) if (!seen.has(n)) closePeer(n);
+  renderList();
+}
+
+function updateListener(){
+  if (!S.ctx || !S.me) return;
+  const L = S.ctx.listener, t = S.ctx.currentTime, me = S.me;
+  const yaw = me.yaw * Math.PI/180, fx = -Math.sin(yaw), fz = Math.cos(yaw);
+  if (L.positionX){
+    L.positionX.setTargetAtTime(me.x, t, .08); L.positionY.setTargetAtTime(me.y, t, .08); L.positionZ.setTargetAtTime(me.z, t, .08);
+    L.forwardX.setTargetAtTime(fx, t, .05); L.forwardY.setTargetAtTime(0, t, .05); L.forwardZ.setTargetAtTime(fz, t, .05);
+    L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
+  } else { L.setPosition(me.x, me.y, me.z); L.setOrientation(fx,0,fz,0,1,0); }
+}
+
+// ═════════════════ WebRTC ═════════════════
+function createPeer(name, initiator){
+  closePeer(name);
+  const pc = new RTCPeerConnection({ iceServers: S.ice });
+  const peer = { name, pc, pending:[], audio:null, src:null, gain:null, panner:null, failTimer:null };
+  S.peers.set(name, peer);
+
+  if (S.micTrack) pc.addTrack(S.micTrack, S.local);
+  else pc.addTransceiver("audio", { direction:"recvonly" });
+
+  pc.onicecandidate = (e) => { if (e.candidate) wsSend({ t:"signal", to:name, data:{ c:e.candidate } }); };
+  pc.ontrack = (e) => attachAudio(peer, e.streams[0] || new MediaStream([e.track]));
+  pc.onconnectionstatechange = () => {
+    const st = pc.connectionState;
+    if (st === "failed") closePeer(name);
+    if (st === "disconnected"){ clearTimeout(peer.failTimer); peer.failTimer = setTimeout(()=> pc.connectionState!=="connected" && closePeer(name), 6000); }
+  };
+
+  if (initiator){
+    (async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        wsSend({ t:"signal", to:name, data:{ sdp:pc.localDescription } });
+      } catch (e) { closePeer(name); }
+    })();
+  }
+  return peer;
+}
+
+async function onSignal(from, data){
+  let peer = S.peers.get(from);
+  try {
+    if (data.sdp){
+      if (data.sdp.type === "offer"){
+        peer = createPeer(from, false);
+        await peer.pc.setRemoteDescription(data.sdp);
+        const ans = await peer.pc.createAnswer();
+        await peer.pc.setLocalDescription(ans);
+        wsSend({ t:"signal", to:from, data:{ sdp:peer.pc.localDescription } });
+      } else if (peer && peer.pc.signalingState === "have-local-offer"){
+        await peer.pc.setRemoteDescription(data.sdp);
+      }
+      if (peer){ for (const c of peer.pending) await peer.pc.addIceCandidate(c).catch(()=>{}); peer.pending = []; }
+    } else if (data.c && peer){
+      if (peer.pc.remoteDescription) await peer.pc.addIceCandidate(data.c).catch(()=>{});
+      else peer.pending.push(data.c);
+    }
+  } catch (e) { console.warn("signal", e); }
+}
+
+function attachAudio(peer, stream){
+  if (peer.src) return;
+  // Chrome : un flux WebRTC distant doit être branché sur un <audio> pour être décodé dans WebAudio
+  const a = new Audio(); a.muted = true; a.srcObject = stream; a.playsInline = true; a.play().catch(()=>{});
+  peer.audio = a;
+  peer.src = S.ctx.createMediaStreamSource(stream);
+  peer.gain = S.ctx.createGain();
+  peer.gain.gain.value = (S.vol[peer.name.toLowerCase()] ?? 100) / 100;
+  const pn = S.ctx.createPanner();
+  pn.panningModel = "HRTF"; pn.distanceModel = "linear";
+  pn.refDistance = 2; pn.maxDistance = S.range; pn.rolloffFactor = 1;
+  peer.panner = pn;
+  peer.src.connect(peer.gain).connect(pn).connect(S.master);
+  const p = S.players.find(x => x.name === peer.name);
+  if (p) placePeer(peer, p);
+}
+
+function placePeer(peer, p){
+  if (!peer.panner) return;
+  const t = S.ctx.currentTime, pn = peer.panner;
+  if (pn.positionX){ pn.positionX.setTargetAtTime(p.x,t,.08); pn.positionY.setTargetAtTime(p.y,t,.08); pn.positionZ.setTargetAtTime(p.z,t,.08); }
+  else pn.setPosition(p.x,p.y,p.z);
+}
+
+function closePeer(name){
+  const p = S.peers.get(name);
+  if (!p) return;
+  S.peers.delete(name);
+  clearTimeout(p.failTimer);
+  try { p.src && p.src.disconnect(); p.panner && p.panner.disconnect(); } catch {}
+  if (p.audio){ p.audio.srcObject = null; }
+  try { p.pc.close(); } catch {}
+}
+function closeAll(){ for (const n of [...S.peers.keys()]) closePeer(n); }
+
+// ═════════════════ micro / sourdine ═════════════════
+const isMicOff = () => S.siteMuted || S.gameMuted || S.deaf;
+function applyMic(){
+  if (S.micTrack) S.micTrack.enabled = !isMicOff();
+  const off = isMicOff();
+  $("micBtn").classList.toggle("off", off);
+  $("micTxt").textContent = off ? (S.gameMuted ? "Coupé en jeu" : "Micro coupé") : "Micro actif";
+  $("micBtn").querySelector("small").textContent = off ? "Appuie pour réactiver" : "Appuie pour couper";
+  wsSend({ t:"mute", v: off });
+  if (off && S.speaking){ S.speaking = false; wsSend({ t:"speaking", v:false }); }
+}
+$("micBtn").onclick = () => { S.siteMuted = !S.siteMuted; if (!S.siteMuted && S.deaf) setDeaf(false); applyMic(); };
+$("deafBtn").onclick = () => setDeaf(!S.deaf);
+function setDeaf(v){
+  S.deaf = v;
+  if (S.master) S.master.gain.setTargetAtTime(v ? 0 : 1, S.ctx.currentTime, .03);
+  $("deafBtn").classList.toggle("off", v);
+  $("deafTxt").textContent = v ? "Sourdine" : "Son actif";
+  $("deafBtn").querySelector("small").textContent = v ? "Appuie pour réactiver" : "Appuie pour sourdine";
+  applyMic();
+}
+
+// détection de parole + vu-mètre
+let analyser, buf, lastLoud = 0;
+function setupMeter(){
+  try { if (S.meterSrc) S.meterSrc.disconnect(); } catch {}
+  S.meterSrc = S.ctx.createMediaStreamSource(S.local);
+  analyser = S.ctx.createAnalyser(); analyser.fftSize = 512;
+  buf = new Float32Array(analyser.fftSize);
+  S.meterSrc.connect(analyser);
+  if (!S.meterLoop){ S.meterLoop = true; setInterval(meterTick, 60); }
+}
+function meterTick(){
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(buf);
+  let s = 0; for (let i=0;i<buf.length;i++) s += buf[i]*buf[i];
+  const rms = Math.sqrt(s/buf.length), lvl = Math.min(1, rms*9);
+  $("meter").style.width = (isMicOff() ? 0 : lvl*100) + "%";
+  const now = performance.now();
+  if (rms > 0.025) lastLoud = now;
+  const sp = !isMicOff() && now - lastLoud < 350;
+  if (sp !== S.speaking){ S.speaking = sp; wsSend({ t:"speaking", v:sp }); }
+}
+
+// ═════════════════ liste des joueurs ═════════════════
+function renderList(){
+  const el = $("list");
+  const near = S.me ? S.players.map(p => ({ ...p, d: dist(p, S.me) })).filter(p => p.d <= S.range + 8).sort((a,b)=>a.d-b.d) : [];
+  $("countTxt").textContent = near.length ? `${near.length} proche${near.length>1?"s":""}` : "";
+  if (!near.length){ el.innerHTML = `<div class="empty">${S.me ? "Personne autour de toi pour l'instant." : "Connecte-toi en jeu pour voir les joueurs proches."}</div>`; return; }
+  const html = near.map(p => {
+    const k = p.name.toLowerCase(), v = S.vol[k] ?? 100;
+    const peer = S.peers.get(p.name);
+    const state = !p.onSite ? "Pas sur le site" : p.muted ? "Micro coupé" : !peer ? "Connexion…" : peer.pc.connectionState === "connected" ? "En ligne" : "Connexion…";
+    return `<div class="pl ${p.speaking && !p.muted ? "talk":""}" data-n="${k}">
+      <img src="${head(p.name)}" alt="" onerror="this.style.visibility='hidden'">
+      <div><div class="n">${esc(p.name)}</div><div class="d">${Math.round(p.d)} blocs · ${state}</div></div>
+      <input type="range" min="0" max="200" value="${v}" aria-label="Volume de ${esc(p.name)}" ${p.onSite?"":"disabled"}>
+    </div>`;
+  }).join("");
+  // évite de casser un slider en cours d'utilisation
+  if (el.contains(document.activeElement) && document.activeElement.type === "range") return;
+  el.innerHTML = html;
+}
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+$("list").addEventListener("input", (e) => {
+  if (e.target.type !== "range") return;
+  const k = e.target.closest(".pl").dataset.n, v = +e.target.value;
+  S.vol[k] = v; store.set("gv_vol", JSON.stringify(S.vol));
+  for (const p of S.peers.values()) if (p.name.toLowerCase() === k && p.gain) p.gain.gain.setTargetAtTime(v/100, S.ctx.currentTime, .03);
+});
+
+// ═════════════════ radar ═════════════════
+const cv = $("radar"), g = cv.getContext("2d");
+function drawRadar(){
+  requestAnimationFrame(drawRadar);
+  const W = cv.width, c = W/2, R = c - 24;
+  g.clearRect(0,0,W,W);
+  g.strokeStyle = "#26262d"; g.lineWidth = 2;
+  for (const f of [1, .66, .33]){ g.beginPath(); g.arc(c,c,R*f,0,Math.PI*2); g.stroke(); }
+  g.beginPath(); g.moveTo(c,c-R); g.lineTo(c,c+R); g.moveTo(c-R,c); g.lineTo(c+R,c); g.stroke();
+  // cône de vision
+  const grd = g.createRadialGradient(c,c,0,c,c,R);
+  grd.addColorStop(0,"rgba(252,120,248,.22)"); grd.addColorStop(1,"rgba(252,120,248,0)");
+  g.fillStyle = grd; g.beginPath(); g.moveTo(c,c); g.arc(c,c,R,-Math.PI/2-.55,-Math.PI/2+.55); g.closePath(); g.fill();
+  // moi
+  g.fillStyle = "#FC78F8"; g.beginPath(); g.moveTo(c,c-14); g.lineTo(c+10,c+10); g.lineTo(c,c+4); g.lineTo(c-10,c+10); g.closePath(); g.fill();
+  if (!S.me) return;
+  const yaw = S.me.yaw*Math.PI/180, fx = -Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = -Math.sin(yaw);
+  g.font = "600 22px ui-sans-serif,-apple-system,sans-serif"; g.textAlign = "center";
+  const now = performance.now();
+  for (const p of S.players){
+    const dx = p.x - S.me.x, dz = p.z - S.me.z;
+    let sx = dx*rx + dz*rz, sy = -(dx*fx + dz*fz);
+    const len = Math.hypot(sx,sy), max = S.range;
+    const out = len > max; if (out){ sx *= max/len; sy *= max/len; }
+    const X = c + sx/max*R, Y = c + sy/max*R;
+    const talk = p.speaking && !p.muted;
+    if (talk){ g.strokeStyle = "rgba(252,120,248,.6)"; g.lineWidth = 3; g.beginPath(); g.arc(X,Y,14+6*Math.sin(now/120),0,Math.PI*2); g.stroke(); }
+    g.fillStyle = out ? "#3a3a44" : p.onSite ? (p.muted ? "#f87171" : "#f4f4f6") : "#8b8b96";
+    g.beginPath(); g.arc(X,Y,9,0,Math.PI*2); g.fill();
+    if (!out){ g.fillStyle = "#c9c9d1"; g.fillText(p.name, X, Y-18); }
+  }
+}
+
+// garde l'écran allumé (le micro se coupe souvent quand le téléphone se verrouille)
+async function requestWake(){
+  try { if ("wakeLock" in navigator){ S.wake = await navigator.wakeLock.request("screen"); } } catch {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && S.started){ requestWake(); S.ctx && S.ctx.resume(); }
+});
+</script>
+</body>
+</html>
