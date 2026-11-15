@@ -137,6 +137,7 @@ const server = http.createServer(async (req, res) => {
           yaw: +p.yaw || 0,
           gameMuted: !!p.muted,
           gameDeaf: !!p.deaf,
+          gameLoop: !!p.loop,
           seen: now,
         });
       }

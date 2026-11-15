@@ -44,7 +44,8 @@
   .dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(74,222,128,.15)}
   .dot.warn{background:var(--warn)}
   .dot.bad{background:var(--bad)}
-  .controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .ctl.on{border-color:rgba(33,222,236,.6);background:rgba(33,222,236,.10);color:#21deec}
   .ctl{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 10px;border-radius:16px;background:var(--panel2);border:1px solid var(--line);color:var(--text);cursor:pointer;font:600 13px inherit;font-family:inherit;position:relative;overflow:hidden;transition:border-color .2s,background .2s}
   .ctl svg{width:26px;height:26px}
   .ctl.off{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.08);color:var(--bad)}
@@ -121,6 +122,10 @@
       <button id="deafBtn" class="ctl">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="3" y="14" width="4" height="7" rx="1.5"/><rect x="17" y="14" width="4" height="7" rx="1.5"/></svg>
         <span id="deafTxt">Son actif</span><small>Appuie pour sourdine</small>
+      </button>
+      <button id="loopBtn" class="ctl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+        <span id="loopTxt">Retour micro</span><small>Pour t'entendre (test)</small>
       </button>
     </div>
 
@@ -203,6 +208,7 @@ async function openMic(deviceId){
   });
   const old = S.local;
   S.local = stream;
+  if (S.loop){ setLoop(false); setLoop(true); }
   S.micTrack = stream.getAudioTracks()[0];
   applyMic();
   // remplace la piste dans les connexions existantes
@@ -298,6 +304,8 @@ function onPositions(m){
   const gm = !!(m.me && m.me.gameMuted);
   if (gm !== S.gameMuted){ S.gameMuted = gm; applyMic(); }
   $("bMuted").classList.toggle("show", S.gameMuted);
+  const gl = !!(m.me && m.me.gameLoop);
+  if (gl !== S.gameLoop){ S.gameLoop = gl; setLoop(gl); }
 
   updateListener();
   const seen = new Set();
@@ -584,6 +592,25 @@ function setDeaf(v){
   $("deafBtn").querySelector("small").textContent = v ? "Appuie pour réactiver" : "Appuie pour sourdine";
   applyMic();
 }
+
+// retour micro : on s'entend soi-même pour tester (mets un casque, sinon larsen)
+function setLoop(v){
+  S.loop = v;
+  $("loopBtn").classList.toggle("on", v);
+  $("loopTxt").textContent = v ? "Retour activé" : "Retour micro";
+  $("loopBtn").querySelector("small").textContent = v ? "Appuie pour arrêter" : "Pour t'entendre (test)";
+  if (!S.ctx || !S.local) return;
+  if (v && !S.loopNode){
+    S.loopSrc = S.ctx.createMediaStreamSource(S.local);
+    S.loopNode = S.ctx.createGain(); S.loopNode.gain.value = 1;
+    S.loopSrc.connect(S.loopNode); S.loopNode.connect(S.ctx.destination);
+    S.ctx.resume();
+  } else if (!v && S.loopNode){
+    try { S.loopSrc.disconnect(); S.loopNode.disconnect(); } catch {}
+    S.loopSrc = S.loopNode = null;
+  }
+}
+$("loopBtn").onclick = () => setLoop(!S.loop);
 
 // volumes réglés en jeu avec /voc (prioritaires sur ceux du site)
 function applyPrefs(v){

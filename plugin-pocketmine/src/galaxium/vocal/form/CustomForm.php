@@ -32,6 +32,12 @@ final class CustomForm implements Form {
 		return $this;
 	}
 
+	/** @param list<string> $options */
+	public function dropdown(string $text, array $options, int $default = 0) : self {
+		$this->elements[] = ["type" => "dropdown", "text" => $text, "options" => array_values($options), "default" => $default];
+		return $this;
+	}
+
 	public function jsonSerialize() : array {
 		return ["type" => "custom_form", "title" => $this->title, "content" => $this->elements];
 	}

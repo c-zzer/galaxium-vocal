@@ -13,7 +13,6 @@ use pocketmine\plugin\PluginBase;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\resourcepacks\ZippedResourcePack;
-use galaxium\vocal\form\SimpleForm;
 use galaxium\vocal\form\CustomForm;
 
 final class Main extends PluginBase implements Listener {
@@ -39,6 +38,8 @@ final class Main extends PluginBase implements Listener {
 	private bool $nametagIcon = true;
 	/** @var array<string, true> sourdine en jeu (clé = nom en minuscules) */
 	private array $deaf = [];
+	/** @var array<string, true> retour micro (s'entendre soi-même, test) — clé = nom en minuscules */
+	private array $loop = [];
 	/** @var array<string, array<string, int>> volumes réglés avec /voc : écouteur → (cible | "*") → 0-200 */
 	private array $prefs = [];
 
@@ -125,6 +126,7 @@ final class Main extends PluginBase implements Listener {
 				"yaw" => (int) round($p->getLocation()->getYaw()),
 				"muted" => $this->isMuted($p),
 				"deaf" => isset($this->deaf[strtolower($p->getName())]),
+				"loop" => isset($this->loop[strtolower($p->getName())]),
 			];
 		}
 		$this->inFlight = true;
@@ -178,6 +180,11 @@ final class Main extends PluginBase implements Listener {
 			return true;
 		}
 		if ($command->getName() === "voc") {
+			$this->openPanel($sender);
+			return true;
+		}
+		// /vocal sans argument : déjà relié ou micro coupé → même panel que /voc
+		if (count($args) === 0 && (isset($this->linked[$sender->getName()]) || $this->isMuted($sender) || isset($this->siteMuted[$sender->getName()]))) {
 			$this->openPanel($sender);
 			return true;
 		}
@@ -251,39 +258,82 @@ final class Main extends PluginBase implements Listener {
 		$this->pushPrefs($listener->getName());
 	}
 
+	/** Ouvre un formulaire 2 ticks plus tard (Bedrock ignore parfois un formulaire envoyé pendant la fermeture du précédent) */
+	private function later(Player $p, \Closure $open) : void {
+		$this->getScheduler()->scheduleDelayedTask(new ClosureTask(function() use ($p, $open) : void {
+			if ($p->isOnline()) $open($p);
+		}), 2);
+	}
+
+	/** Panel style « Paramètres » de Minecraft : tout sur un seul écran, appliqué dès qu'on valide */
 	public function openPanel(Player $p) : void {
 		$k = strtolower($p->getName());
 		$linked = isset($this->linked[$p->getName()]);
 		$muted = isset($this->muted[$k]);
 		$deaf = isset($this->deaf[$k]);
-		$near = 0;
-		foreach ($this->getServer()->getOnlinePlayers() as $o) {
-			if ($o !== $p && $o->getWorld() === $p->getWorld() && $o->getPosition()->distance($p->getPosition()) <= 24 && isset($this->linked[$o->getName()])) $near++;
-		}
-		$content = "§7Site : " . ($linked ? "§aconnecté" : "§cpas connecté §7(fais §dObtenir mon code§7)") . "\n"
-			. "§7Micro : " . ($muted ? "§ccoupé" : "§aactif") . "    §7Son : " . ($deaf ? "§csourdine" : "§aactif") . "\n"
-			. "§7Joueurs à portée sur le vocal : §f" . $near . "\n"
-			. "§7Volume général : §f" . $this->vol($p, "*") . "%";
+		$loop = isset($this->loop[$k]);
+		$master = $this->vol($p, "*");
 
-		$f = new SimpleForm("§l§dVocal de proximité", $content);
-		$f->button($muted ? "§aRéactiver mon micro" : "§cCouper mon micro", self::TEX . ($muted ? "1" : "3"), function(Player $p) use ($k) : void {
-			if (isset($this->muted[$k])) unset($this->muted[$k]); else $this->muted[$k] = true;
-			$p->sendMessage(self::PREFIX . (isset($this->muted[$k]) ? "§cMicro coupé." : "§aMicro réactivé."));
-			$this->openPanel($p);
-		});
-		$f->button($deaf ? "§aRéactiver le son" : "§cSourdine (n'entendre personne)", self::TEX . ($deaf ? "spk_on" : "spk_off"), function(Player $p) use ($k) : void {
-			if (isset($this->deaf[$k])) unset($this->deaf[$k]); else $this->deaf[$k] = true;
-			$p->sendMessage(self::PREFIX . (isset($this->deaf[$k]) ? "§cSourdine activée (micro coupé aussi)." : "§aSon réactivé."));
-			$this->openPanel($p);
-		});
-		$f->button("Volume des joueurs", self::TEX . "players", fn(Player $p) => $this->openPlayers($p));
-		$f->button("Volume général", self::TEX . "spk_talk", fn(Player $p) => $this->openMaster($p));
-		if ($linked) {
-			$f->button("§7Déconnecter le site", null, fn(Player $p) => $this->unlinkSite($p));
-		} else {
-			$f->button("§dObtenir mon code de connexion", self::TEX . "1", fn(Player $p) => $this->requestCode($p));
+		$names = [];
+		foreach ($this->getServer()->getOnlinePlayers() as $o) {
+			if ($o === $p) continue;
+			$names[] = [$o->getName(), $o->getWorld() === $p->getWorld() ? $o->getPosition()->distance($p->getPosition()) : INF];
 		}
-		$f->button("Fermer", null, fn(Player $p) => null);
+		usort($names, fn($a, $b) => $a[1] <=> $b[1]);
+		$names = array_slice($names, 0, 40);
+		$near = count(array_filter($names, fn($n) => $n[1] <= 24 && isset($this->linked[$n[0]])));
+		$options = ["§7Aucun"];
+		foreach ($names as [$n, $d]) {
+			$v = $this->vol($p, $n);
+			$options[] = $n . " §8(" . (is_infinite($d) ? "autre monde" : (int) round($d) . " blocs") . " · " . (!isset($this->linked[$n]) ? "pas sur le vocal" : ($v === 0 ? "§cmuet§8" : $v . "%")) . ")";
+		}
+
+		$status = "§l§7GÉNÉRAL§r\n"
+			. "§7Site : " . ($linked ? "§aconnecté" : "§cpas connecté") . "   §7À portée : §f" . $near . "\n"
+			. ($linked ? "" : "§8Active « Recevoir mon code » puis entre-le sur le site.\n");
+
+		$f = new CustomForm("§l§dVocal de proximité", function(Player $p, array $d) use ($k, $muted, $deaf, $loop, $master, $names, $linked) : void {
+			$msgs = [];
+			$mic = (bool) ($d[1] ?? !$muted);
+			if ($mic === $muted) { // changé
+				if ($mic) unset($this->muted[$k]); else $this->muted[$k] = true;
+				$msgs[] = $mic ? "§aMicro activé" : "§cMicro coupé";
+			}
+			$son = (bool) ($d[2] ?? !$deaf);
+			if ($son === $deaf) {
+				if ($son) unset($this->deaf[$k]); else $this->deaf[$k] = true;
+				$msgs[] = $son ? "§aSon activé" : "§cSourdine";
+			}
+			$lp = (bool) ($d[3] ?? $loop);
+			if ($lp !== $loop) {
+				if ($lp) $this->loop[$k] = true; else unset($this->loop[$k]);
+				$msgs[] = $lp ? "§bRetour micro activé §7(mets un casque)" : "§7Retour micro désactivé";
+			}
+			$vol = (int) round((float) ($d[4] ?? $master));
+			if ($vol !== $master) {
+				$this->setVol($p, "*", $vol);
+				$msgs[] = "§7Volume général §f" . $vol . "%";
+			}
+			unset($this->hudState[$p->getName()]); // icône mise à jour tout de suite
+			if (count($msgs) > 0) $p->sendMessage(self::PREFIX . implode(" §8· ", $msgs));
+
+			$action = (bool) ($d[6] ?? false);
+			if ($action) {
+				if ($linked) $this->unlinkSite($p); else $this->requestCode($p);
+			}
+			$sel = (int) ($d[5] ?? 0);
+			if ($sel > 0 && isset($names[$sel - 1])) {
+				$target = $names[$sel - 1][0];
+				$this->later($p, fn(Player $p) => $this->openPlayerVolume($p, $target));
+			}
+		});
+		$f->label($status)
+			->toggle("Micro\n§7Les autres t'entendent", !$muted)
+			->toggle("Son\n§7Tu entends les autres", !$deaf)
+			->toggle("Retour de mon micro\n§7Tu t'entends toi-même pour tester (casque conseillé)", $loop)
+			->slider("Volume général", 0, 200, 5, $master)
+			->dropdown("Volume d'un joueur\n§7Choisis un joueur pour régler son volume (rien que pour toi)", $options, 0)
+			->toggle($linked ? "§cDéconnecter le site" : "§dRecevoir mon code de connexion", false);
 		$p->sendForm($f);
 	}
 
@@ -295,52 +345,21 @@ final class Main extends PluginBase implements Listener {
 		return isset($this->speaking[$n]) ? "2" : "1";
 	}
 
-	private function openPlayers(Player $p) : void {
-		$list = [];
-		foreach ($this->getServer()->getOnlinePlayers() as $o) {
-			if ($o === $p) continue;
-			$d = $o->getWorld() === $p->getWorld() ? $o->getPosition()->distance($p->getPosition()) : INF;
-			$list[] = [$o, $d];
-		}
-		usort($list, fn($a, $b) => $a[1] <=> $b[1]);
-		$f = new SimpleForm("§l§dVolume des joueurs", count($list) ? "§7Touche un joueur pour régler son volume (seulement pour toi)." : "§7Personne d'autre n'est connecté.");
-		foreach (array_slice($list, 0, 40) as [$o, $d]) {
-			$name = $o->getName();
-			$v = $this->vol($p, $name);
-			$dist = is_infinite($d) ? "autre monde" : ((int) round($d)) . " blocs";
-			$tag = !isset($this->linked[$name]) ? "§8pas sur le vocal" : ($v === 0 ? "§cmuet pour toi" : "§7" . $v . "%");
-			$f->button("§f" . $name . "\n§8" . $dist . " · " . $tag, self::TEX . $this->stateOf($o), fn(Player $p) => $this->openPlayerVolume($p, $name));
-		}
-		$f->button("§7← Retour", null, fn(Player $p) => $this->openPanel($p));
-		$p->sendForm($f);
-	}
-
 	private function openPlayerVolume(Player $p, string $target) : void {
 		$v = $this->vol($p, $target);
 		$f = new CustomForm("§l§d" . $target, function(Player $p, array $d) use ($target, $v) : void {
-			$vol = (int) ($d[1] ?? $v);
+			$vol = (int) round((float) ($d[1] ?? $v));
 			if (!empty($d[2])) $vol = 0;
 			elseif ($vol === 0 && $v === 0) $vol = 100; // décocher "muet" remet à 100 %
-			$this->setVol($p, $target, $vol);
-			$p->sendMessage(self::PREFIX . "§7" . $target . " : " . ($vol === 0 ? "§cmuet pour toi" : "§f" . $vol . "%"));
-			$this->openPlayers($p);
+			if ($vol !== $v) {
+				$this->setVol($p, $target, $vol);
+				$p->sendMessage(self::PREFIX . "§7" . $target . " : " . ($vol === 0 ? "§cmuet pour toi" : "§f" . $vol . "%"));
+			}
+			$this->later($p, fn(Player $p) => $this->openPanel($p));
 		});
 		$f->label("§7Règle à quel volume tu entends §f" . $target . "§7. Lui ne voit pas ce réglage.")
-			->slider("Volume (%)", 0, 200, 5, $v)
+			->slider("Volume", 0, 200, 5, $v)
 			->toggle("Ne plus l'entendre (muet pour moi)", $v === 0);
-		$p->sendForm($f);
-	}
-
-	private function openMaster(Player $p) : void {
-		$v = $this->vol($p, "*");
-		$f = new CustomForm("§l§dVolume général", function(Player $p, array $d) use ($v) : void {
-			$vol = (int) ($d[1] ?? $v);
-			$this->setVol($p, "*", $vol);
-			$p->sendMessage(self::PREFIX . "§7Volume général : §f" . $vol . "%");
-			$this->openPanel($p);
-		});
-		$f->label("§7Volume de toutes les voix que tu entends sur le site.")
-			->slider("Volume général (%)", 0, 200, 5, $v);
 		$p->sendForm($f);
 	}
 
@@ -376,7 +395,7 @@ final class Main extends PluginBase implements Listener {
 	}
 
 	public function onQuit(PlayerQuitEvent $e) : void {
-		unset($this->hudState[$e->getPlayer()->getName()]);
+		unset($this->hudState[$e->getPlayer()->getName()], $this->loop[strtolower($e->getPlayer()->getName())]);
 	}
 
 	public function onJoin(PlayerJoinEvent $e) : void {
