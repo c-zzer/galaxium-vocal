@@ -13,3 +13,5 @@ nametag_icon: true
 actionbar: false
 # Message de bienvenue à la connexion
 join_message: true
+# Distance d'écoute (blocs) — au-delà, le pseudo affiche l'icône « son coupé »
+range: 24

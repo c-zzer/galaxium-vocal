@@ -14,6 +14,10 @@ use pocketmine\scheduler\ClosureTask;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\resourcepacks\ZippedResourcePack;
 use galaxium\vocal\form\CustomForm;
+use pocketmine\network\mcpe\protocol\SetActorDataPacket;
+use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataProperties;
+use pocketmine\network\mcpe\protocol\types\entity\PropertySyncData;
+use pocketmine\network\mcpe\protocol\types\entity\StringMetadataProperty;
 
 final class Main extends PluginBase implements Listener {
 
@@ -40,6 +44,9 @@ final class Main extends PluginBase implements Listener {
 	private array $deaf = [];
 	/** @var array<string, true> retour micro (s'entendre soi-même, test) — clé = nom en minuscules */
 	private array $loop = [];
+	/** @var array<string, array<string, array{0: string, 1: int}>> pseudo « trop loin » envoyé : spectateur → joueur → [texte, tick] */
+	private array $farSent = [];
+	private float $range = 24.0;
 	/** @var array<string, array<string, int>> volumes réglés avec /voc : écouteur → (cible | "*") → 0-200 */
 	private array $prefs = [];
 
@@ -71,6 +78,7 @@ final class Main extends PluginBase implements Listener {
 		// Resource pack de l'indicateur micro (JSON UI), chargé automatiquement
 		$this->hud = (bool) $this->getConfig()->get("hud", true);
 		$this->nametagIcon = (bool) $this->getConfig()->get("nametag_icon", true);
+		$this->range = (float) $this->getConfig()->get("range", 24);
 		if ($this->hud) {
 			try {
 				$this->saveResource("GalaxiumVocalRP.zip", true);
@@ -378,6 +386,53 @@ final class Main extends PluginBase implements Listener {
 			}
 			if ($this->nametagIcon) $this->applyNameTagIcon($p, $state);
 		}
+		if ($this->nametagIcon) $this->updateFarTags();
+	}
+
+	/** Pseudo avec une icône donnée (remplace celle déjà présente) */
+	private function tagWithIcon(Player $p, string $icon) : string {
+		$clean = (string) preg_replace('/[\x{EA00}-\x{EA03}] ?/u', '', $p->getNameTag());
+		$pos = strpos($clean, $p->getName());
+		return $pos === false ? $icon . " " . $clean : substr($clean, 0, $pos) . $icon . " " . substr($clean, $pos);
+	}
+
+	/**
+	 * Joueur sur le vocal mais trop loin pour être entendu : chaque spectateur voit l'icône « son coupé »
+	 * à côté de son pseudo (envoyé seulement à ce spectateur, les autres voient le vrai état).
+	 */
+	private function updateFarTags() : void {
+		$now = $this->getServer()->getTick();
+		$all = $this->getServer()->getOnlinePlayers();
+		foreach ($all as $v) {
+			$vn = $v->getName();
+			foreach ($all as $t) {
+				if ($t === $v) continue;
+				$tn = $t->getName();
+				$prev = $this->farSent[$vn][$tn] ?? null;
+				$seen = in_array($v, $t->getViewers(), true);
+				$far = $seen && isset($this->linked[$tn])
+					&& ($t->getWorld() !== $v->getWorld() || $t->getPosition()->distance($v->getPosition()) > $this->range);
+				if ($far) {
+					$tag = $this->tagWithIcon($t, self::ICON["mute"]);
+					if ($prev === null || $prev[0] !== $tag || $now - $prev[1] >= 40) {
+						$this->sendTagTo($v, $t, $tag);
+						$this->farSent[$vn][$tn] = [$tag, $now];
+					}
+				} elseif ($prev !== null) {
+					if ($seen) $this->sendTagTo($v, $t, $t->getNameTag()); // revenu à portée : vrai pseudo
+					unset($this->farSent[$vn][$tn]);
+				}
+			}
+		}
+	}
+
+	private function sendTagTo(Player $viewer, Player $target, string $tag) : void {
+		$viewer->getNetworkSession()->sendDataPacket(SetActorDataPacket::create(
+			$target->getId(),
+			[EntityMetadataProperties::NAMETAG => new StringMetadataProperty($tag)],
+			new PropertySyncData([], []),
+			0
+		));
 	}
 
 	/** Icône de son à gauche du pseudo (au-dessus de la tête). Résiste aux plugins qui réécrivent le nametag. */
@@ -395,7 +450,9 @@ final class Main extends PluginBase implements Listener {
 	}
 
 	public function onQuit(PlayerQuitEvent $e) : void {
-		unset($this->hudState[$e->getPlayer()->getName()], $this->loop[strtolower($e->getPlayer()->getName())]);
+		$n = $e->getPlayer()->getName();
+		unset($this->hudState[$n], $this->loop[strtolower($n)], $this->farSent[$n]);
+		foreach ($this->farSent as $vn => $_) unset($this->farSent[$vn][$n]);
 	}
 
 	public function onJoin(PlayerJoinEvent $e) : void {
