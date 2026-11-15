@@ -156,7 +156,7 @@ const S = {
   ws:null, token:store.get("gv_token"), name:store.get("gv_name"), range:24, ice:[],
   me:null, players:[], game:false,
   ctx:null, master:null, local:null, micTrack:null,
-  siteMuted:false, gameMuted:false, deaf:false, speaking:false,
+  siteMuted:false, gameMuted:false, deaf:false, gameDeaf:false, speaking:false, masterVol:1,
   peers:new Map(), vol:JSON.parse(store.get("gv_vol")||"{}"),
   retry:0, closedByUs:false, started:false,
 };
@@ -244,6 +244,7 @@ function connectWs(authMsg, errEl){
       case "pos": onPositions(m); break;
       case "signal": onSignal(m.from, m.data); break;
       case "left": closePeer(m.name); break;
+      case "prefs": applyPrefs(m.v || {}); break;
       case "replaced":
         S.closedByUs = true; status("bad","Ouvert sur un autre appareil"); closeAll(); break;
       case "unlinked":
@@ -287,6 +288,8 @@ function onPositions(m){
   else status("ok","Connecté en jeu");
   $("bGame").classList.toggle("show", m.game && !inGame);
 
+  const gd = !!(m.me && m.me.gameDeaf);
+  if (gd !== S.gameDeaf){ S.gameDeaf = gd; setDeaf(gd); }
   const gm = !!(m.me && m.me.gameMuted);
   if (gm !== S.gameMuted){ S.gameMuted = gm; applyMic(); }
   $("bMuted").classList.toggle("show", S.gameMuted);
@@ -459,11 +462,22 @@ $("micBtn").onclick = () => { S.siteMuted = !S.siteMuted; if (!S.siteMuted && S.
 $("deafBtn").onclick = () => setDeaf(!S.deaf);
 function setDeaf(v){
   S.deaf = v;
-  if (S.master) S.master.gain.setTargetAtTime(v ? 0 : 1, S.ctx.currentTime, .03);
+  if (S.master) S.master.gain.setTargetAtTime(v ? 0 : S.masterVol, S.ctx.currentTime, .03);
   $("deafBtn").classList.toggle("off", v);
   $("deafTxt").textContent = v ? "Sourdine" : "Son actif";
   $("deafBtn").querySelector("small").textContent = v ? "Appuie pour réactiver" : "Appuie pour sourdine";
   applyMic();
+}
+
+// volumes réglés en jeu avec /voc (prioritaires sur ceux du site)
+function applyPrefs(v){
+  for (const [k, vol] of Object.entries(v)){
+    if (k === "*"){ S.masterVol = vol / 100; if (S.master && !S.deaf) S.master.gain.setTargetAtTime(S.masterVol, S.ctx.currentTime, .05); continue; }
+    S.vol[k] = vol;
+    for (const p of S.peers.values()) if (p.name.toLowerCase() === k && p.gain) p.gain.gain.setTargetAtTime(vol/100, S.ctx.currentTime, .05);
+  }
+  store.set("gv_vol", JSON.stringify(S.vol));
+  renderList();
 }
 
 // détection de parole + vu-mètre

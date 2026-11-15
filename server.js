@@ -35,6 +35,7 @@ const tokens = new Map(); // token -> { name, exp }
 const players = new Map(); // name(lowercase) -> { name, x, y, z, dim, yaw, gameMuted, seen }
 const clients = new Map(); // name(lowercase) -> ws (une seule page par joueur)
 const speaking = new Set(); // names(lowercase) en train de parler
+const prefs = new Map(); // name(lowercase) -> { cible(lowercase) | "*": volume 0-200 } réglés avec /voc
 let lastGameSync = 0;
 
 const key = (n) => String(n).toLowerCase();
@@ -127,6 +128,7 @@ const server = http.createServer(async (req, res) => {
           dim: String(p.dim || "overworld"),
           yaw: +p.yaw || 0,
           gameMuted: !!p.muted,
+          gameDeaf: !!p.deaf,
           seen: now,
         });
       }
@@ -147,6 +149,19 @@ const server = http.createServer(async (req, res) => {
       const code = newCode();
       codes.set(code, { name: body.name.slice(0, 32), exp: Date.now() + CODE_TTL_MS });
       return send(res, 200, { code, ttl: CODE_TTL_MS / 1000 });
+    }
+
+    // Réglages de volume faits en jeu avec /voc
+    if (url.pathname === "/api/mc/prefs") {
+      if (typeof body.name !== "string" || typeof body.prefs !== "object" || !body.prefs) return send(res, 400, { error: "prefs" });
+      const clean = {};
+      for (const [t, v] of Object.entries(body.prefs).slice(0, 300)) {
+        const n = Number(v);
+        if (Number.isFinite(n)) clean[String(t).toLowerCase().slice(0, 32)] = Math.max(0, Math.min(200, n));
+      }
+      prefs.set(key(body.name), clean);
+      wsSend(clients.get(key(body.name)), { t: "prefs", v: clean });
+      return send(res, 200, { ok: true });
     }
 
     // Déliaison (/vocal unlink en jeu) : coupe la page et invalide les sessions
@@ -256,6 +271,7 @@ wss.on("connection", (ws) => {
       ws.siteMuted = false;
       clients.set(k, ws);
       wsSend(ws, { t: "ready", name, token, range: RANGE, ice: ICE });
+      if (prefs.has(k)) wsSend(ws, { t: "prefs", v: prefs.get(k) });
       broadcastPositions();
       return;
     }
