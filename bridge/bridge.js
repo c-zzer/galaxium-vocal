@@ -15,7 +15,7 @@ const { PassThrough } = require("stream");
 const WebSocket = require("ws");
 const prism = require("prism-media");
 const {
-  Client, GatewayIntentBits, ChannelType, PermissionFlagsBits, Events, REST, Routes, SlashCommandBuilder, MessageFlags,
+  Client, GatewayIntentBits, ChannelType, PermissionFlagsBits, OverwriteType, Events, REST, Routes, SlashCommandBuilder, MessageFlags,
 } = require("discord.js");
 const {
   joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType, EndBehaviorType,
@@ -293,10 +293,11 @@ async function startSession(member) {
       type: ChannelType.GuildVoice,
       parent: category.id,
       permissionOverwrites: [
-        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.Connect] },
-        { id: member.id, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.Speak, PermissionFlagsBits.ViewChannel] },
-        { id: w.client.user.id, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.Speak, PermissionFlagsBits.ViewChannel] },
-        { id: manager.user.id, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.MoveMembers] },
+        // type explicite : les bots 2 à 10 ne sont pas en cache côté bot principal
+        { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.Connect] },
+        { id: member.id, type: OverwriteType.Member, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.Speak, PermissionFlagsBits.ViewChannel] },
+        { id: w.client.user.id, type: OverwriteType.Member, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.Speak, PermissionFlagsBits.ViewChannel] },
+        { id: manager.user.id, type: OverwriteType.Member, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.MoveMembers] },
       ],
     });
     await member.voice.setChannel(s.channel);
