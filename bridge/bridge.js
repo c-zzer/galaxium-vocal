@@ -221,7 +221,7 @@ function sendActive() {
 
 async function setupGuild() {
   const name = key(CONFIG.guildName || "");
-  guild = manager.guilds.cache.find((g) => key(g.name) === name) || null;
+  guild = manager.guilds.cache.find((g) => key(g.name) === name) || manager.guilds.cache.find((g) => key(g.name).includes(name)) || null;
   if (!guild) {
     log(`❌ Le bot principal n'est pas sur le serveur Discord « ${CONFIG.guildName} ». Invite-le avec :`);
     log("   " + invite(manager.user.id, MANAGER_PERMS));
