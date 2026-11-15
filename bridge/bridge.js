@@ -86,6 +86,7 @@ function connectHub() {
 // format interne : 48 kHz mono, trames de 20 ms (960 échantillons, Float32)
 const FRAME = 960;
 const sessions = new Map(); // id Discord -> session
+const SELF = "\u0000self"; // file du retour micro
 
 function distanceGain(d) {
   const near = 3;
@@ -132,6 +133,13 @@ function onDiscordAudio(s, pcm) {
   const mono = new Float32Array(FRAME);
   for (let i = 0; i < FRAME; i++) mono[i] = (pcm.readInt16LE(i * 4) + pcm.readInt16LE(i * 4 + 2)) / 65536;
   pushToListeners(s.mcName, mono);
+  // retour micro (activé dans /voc) : le joueur s'entend lui-même
+  if (me.gameLoop) {
+    let q = s.queues.get(SELF);
+    if (!q) s.queues.set(SELF, (q = []));
+    q.push(mono);
+    if (q.length > 6) q.splice(0, q.length - 3);
+  }
   const down = Buffer.alloc((FRAME / 3) * 2);
   for (let i = 0; i < FRAME / 3; i++) {
     const v = (mono[i * 3] + mono[i * 3 + 1] + mono[i * 3 + 2]) / 3;
@@ -153,6 +161,12 @@ function mixFor(s) {
     for (const [src, q] of s.queues) {
       const frame = q.shift();
       if (!frame) continue;
+      if (src === SELF) { // retour micro : centré, plein volume
+        if (!me.gameLoop) { q.length = 0; continue; }
+        for (let i = 0; i < FRAME; i++) { L[i] += frame[i] * master; R[i] += frame[i] * master; }
+        any = true;
+        continue;
+      }
       const p = positions.get(src);
       if (!p || p.dim !== me.dim || p.gameMuted) continue;
       const d = Math.hypot(p.x - me.x, p.y - me.y, p.z - me.z);
