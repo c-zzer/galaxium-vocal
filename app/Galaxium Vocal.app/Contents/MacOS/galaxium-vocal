@@ -1,0 +1,61 @@
+#!/bin/bash
+# Galaxium Vocal — démarre / arrête le pont Discord en arrière-plan
+DIR="$HOME/Desktop/Galaxium-Vocal-Pont"
+LOG="$DIR/pont.log"
+PIDFILE="$DIR/.pont.pid"
+
+dlg() { # $1 message, $2 boutons (liste AppleScript), $3 bouton par défaut
+  osascript -e "button returned of (display dialog \"$1\" with title \"Galaxium Vocal\" buttons {$2} default button \"$3\" with icon note)" 2>/dev/null
+}
+notify() { osascript -e "display notification \"$1\" with title \"Galaxium Vocal\"" 2>/dev/null; }
+
+running_pid() {
+  [ -f "$PIDFILE" ] || return 1
+  local pid; pid=$(cat "$PIDFILE")
+  kill -0 "$pid" 2>/dev/null && echo "$pid" && return 0
+  rm -f "$PIDFILE"; return 1
+}
+
+start() {
+  if [ ! -d "$DIR" ]; then dlg "Dossier introuvable : Bureau/Galaxium-Vocal-Pont" "\"OK\"" "OK"; return; fi
+  cd "$DIR" || return
+  local have total; have=$(grep -v '^#' tokens.txt 2>/dev/null | grep -c .); total=$(grep -c . bots.txt)
+  if [ "$have" -eq 0 ] || [ ! -d node_modules ]; then
+    dlg "Première configuration à faire (tokens des bots). Je l'ouvre dans le Terminal." "\"OK\"" "OK"
+    open "$DIR/Lancer le pont vocal.command"; return
+  fi
+  local NODE; NODE=$(command -v node || true)
+  [ -x "$DIR/.node/bin/node" ] && NODE="$DIR/.node/bin/node"
+  for p in /opt/homebrew/bin/node /usr/local/bin/node; do [ -z "$NODE" ] && [ -x "$p" ] && NODE="$p"; done
+  if [ -z "$NODE" ]; then dlg "Node.js introuvable. Lance une fois « Lancer le pont vocal.command »." "\"OK\"" "OK"; return; fi
+  echo "──── $(date '+%d/%m %H:%M') démarrage ────" >> "$LOG"
+  # caffeinate empêche la veille tant que le pont tourne ; nice = priorité basse pour ne pas ralentir le Mac
+  nohup caffeinate -i nice -n 10 "$NODE" bridge.js >> "$LOG" 2>&1 &
+  echo $! > "$PIDFILE"
+  sleep 3
+  if running_pid >/dev/null; then notify "Pont vocal démarré ($have bots)"; else dlg "Le pont s'est arrêté tout de suite. Regarde le journal." "\"Voir le journal\", \"OK\"" "Voir le journal" | grep -q journal && open -a TextEdit "$LOG"; fi
+}
+
+stop() {
+  local pid; pid=$(running_pid) || return
+  pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null
+  pkill -f "$DIR/bridge.js" 2>/dev/null; pkill -f "node bridge.js" 2>/dev/null
+  rm -f "$PIDFILE"
+  notify "Pont vocal arrêté"
+}
+
+if pid=$(running_pid); then
+  cpu=$(ps -A -o ppid=,%cpu=,rss= | awk -v p="$pid" '$1==p {c+=$2; m+=$3} END {printf "%.0f %% CPU · %.0f Mo", c, m/1024}')
+  bots=$(grep -v '^#' "$DIR/tokens.txt" | grep -c .)
+  choice=$(dlg "🟢 Le pont vocal est ACTIF\\n\\n$bots bots · $cpu" "\"Voir le journal\", \"Arrêter\", \"Fermer\"" "Fermer")
+  case "$choice" in
+    Arrêter) stop ;;
+    "Voir le journal") open -a TextEdit "$LOG" ;;
+  esac
+else
+  choice=$(dlg "🔴 Le pont vocal est ARRÊTÉ\\n\\nLes joueurs Discord ne sont pas reliés au jeu tant qu'il est arrêté (le site, lui, marche toujours)." "\"Voir le journal\", \"Démarrer\", \"Fermer\"" "Démarrer")
+  case "$choice" in
+    Démarrer) start ;;
+    "Voir le journal") [ -f "$LOG" ] && open -a TextEdit "$LOG" ;;
+  esac
+fi

@@ -410,10 +410,12 @@ async function main() {
 }
 
 process.on("unhandledRejection", (e) => log("⚠️", e && e.message ? e.message : e));
-process.on("SIGINT", async () => {
-  log("Arrêt…");
-  for (const id of [...sessions.keys()]) await endSession(id);
+async function shutdown() {
+  log("Arrêt… (fermeture des salons)");
+  for (const id of [...sessions.keys()]) await endSession(id).catch(() => {});
   process.exit(0);
-});
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 main();
