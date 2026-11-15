@@ -1,25 +1,34 @@
 {
   "namespace": "hud",
-
-  // Indicateur micro Galaxium Vocal (bas droite).
-  // Le serveur envoie un titre "gvc:on" / "gvc:talk" / "gvc:mute" / "gvc:off" :
-  // il est mémorisé ici et n'est jamais affiché comme un vrai titre.
   "gvc_indicator": {
     "type": "image",
-    "size": [ 20, 20 ],
+    "size": [
+      20,
+      20
+    ],
     "anchor_from": "bottom_right",
     "anchor_to": "bottom_right",
-    "offset": [ -6, -6 ],
+    "offset": [
+      -6,
+      -6
+    ],
     "layer": 40,
     "texture": "#texture",
     "controls": [
       {
         "gvc_data": {
           "type": "panel",
-          "size": [ 0, 0 ],
-          "property_bag": { "#preserved_text": "gvc:off" },
+          "size": [
+            0,
+            0
+          ],
+          "property_bag": {
+            "#preserved_text": "§v§c§o0"
+          },
           "bindings": [
-            { "binding_name": "#hud_title_text_string" },
+            {
+              "binding_name": "#hud_title_text_string"
+            },
             {
               "binding_name": "#hud_title_text_string",
               "binding_name_override": "#preserved_text",
@@ -27,7 +36,7 @@
             },
             {
               "binding_type": "view",
-              "source_property_name": "(not (#hud_title_text_string = #preserved_text) and not ((#hud_title_text_string - 'gvc:') = #hud_title_text_string))",
+              "source_property_name": "(not (#hud_title_text_string = #preserved_text) and not ((#hud_title_text_string - '§v§c§o') = #hud_title_text_string))",
               "target_property_name": "#visible"
             }
           ]
@@ -38,30 +47,40 @@
       {
         "binding_type": "view",
         "source_control_name": "gvc_data",
-        "source_property_name": "('textures/ui/galaxium_vocal/' + (#preserved_text - 'gvc:'))",
+        "source_property_name": "('textures/ui/galaxium_vocal/' + (#preserved_text - '§v§c§o'))",
         "target_property_name": "#texture"
       }
     ]
   },
-
-  // Les titres "gvc:..." ne s'affichent jamais à l'écran
   "hud_title_text": {
-    "bindings": [
-      { "binding_name": "#hud_title_text_string" },
+    "modifications": [
       {
-        "binding_type": "view",
-        "source_property_name": "((#hud_title_text_string - 'gvc:') = #hud_title_text_string)",
-        "target_property_name": "#visible"
+        "array_name": "bindings",
+        "operation": "insert_back",
+        "value": [
+          {
+            "binding_name": "#hud_title_text_string",
+            "binding_type": "global"
+          },
+          {
+            "binding_type": "view",
+            "source_property_name": "(((#hud_title_text_string - '§v§c§o') = #hud_title_text_string) and ((#hud_title_text_string - 'void_hud') = #hud_title_text_string) and ((#hud_title_text_string - 'void_boss') = #hud_title_text_string))",
+            "target_property_name": "#visible"
+          }
+        ]
       }
     ]
   },
-
   "root_panel": {
     "modifications": [
       {
         "array_name": "controls",
         "operation": "insert_back",
-        "value": [ { "gvc_indicator@hud.gvc_indicator": {} } ]
+        "value": [
+          {
+            "gvc_indicator@hud.gvc_indicator": {}
+          }
+        ]
       }
     ]
   }

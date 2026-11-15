@@ -7,6 +7,8 @@ key: "gv-1879571ad7f97ee43409eab0"
 sync_ticks: 4
 # Icône du micro en bas à droite (JSON UI, resource pack envoyé automatiquement)
 hud: true
+# Icône de son à gauche du pseudo au-dessus de la tête (verte quand le joueur parle)
+nametag_icon: true
 # Ancien indicateur texte dans l'actionbar (désactivé, remplacé par l'icône)
 actionbar: false
 # Message de bienvenue à la connexion

@@ -34,6 +34,13 @@ final class Main extends PluginBase implements Listener {
 	/** @var array<string, string> dernier état HUD envoyé à chaque joueur */
 	private array $hudState = [];
 	private bool $hud = true;
+	private bool $nametagIcon = true;
+
+	/** titre invisible (codes couleur uniquement) lu par le resource pack */
+	private const HUD_MARK = "§v§c§o";
+	private const HUD_CODE = ["off" => "0", "on" => "1", "talk" => "2", "mute" => "3"];
+	/** icônes de la police glyph_EA du resource pack */
+	private const ICON = ["talk" => "\u{EA00}", "on" => "\u{EA01}", "mute" => "\u{EA02}"];
 
 	protected function onEnable() : void {
 		$this->saveDefaultConfig();
@@ -51,13 +58,14 @@ final class Main extends PluginBase implements Listener {
 
 		// Resource pack de l'indicateur micro (JSON UI), chargé automatiquement
 		$this->hud = (bool) $this->getConfig()->get("hud", true);
+		$this->nametagIcon = (bool) $this->getConfig()->get("nametag_icon", true);
 		if ($this->hud) {
 			try {
 				$this->saveResource("GalaxiumVocalRP.zip", true);
 				$pack = new ZippedResourcePack($this->getDataFolder() . "GalaxiumVocalRP.zip");
 				$manager = $this->getServer()->getResourcePackManager();
 				$stack = $manager->getResourceStack();
-				$stack[] = $pack;
+				array_unshift($stack, $pack); // en haut de la pile
 				$manager->setResourceStack($stack);
 				$this->getLogger()->info("Resource pack HUD micro chargé");
 			} catch (\Throwable $e) {
@@ -127,7 +135,7 @@ final class Main extends PluginBase implements Listener {
 			$this->linked = array_fill_keys(array_map("strval", (array) ($data["linked"] ?? [])), true);
 			$this->speaking = array_fill_keys(array_map("strval", (array) ($data["speaking"] ?? [])), true);
 			$this->siteMuted = array_fill_keys(array_map("strval", (array) ($data["muted"] ?? [])), true);
-			if ($this->hud) $this->updateHud();
+			if ($this->hud || $this->nametagIcon) $this->updateHud();
 			return;
 		}
 
@@ -196,11 +204,26 @@ final class Main extends PluginBase implements Listener {
 			elseif ($this->isMuted($p) || isset($this->siteMuted[$n])) $state = "mute";
 			elseif (isset($this->speaking[$n])) $state = "talk";
 			else $state = "on";
-			if (($this->hudState[$n] ?? "off") !== $state) {
+			if ($this->hud && ($this->hudState[$n] ?? "off") !== $state) {
 				$this->hudState[$n] = $state;
-				$p->sendTitle("gvc:" . $state);
+				$p->sendTitle(self::HUD_MARK . self::HUD_CODE[$state]);
 			}
+			if ($this->nametagIcon) $this->applyNameTagIcon($p, $state);
 		}
+	}
+
+	/** Icône de son à gauche du pseudo (au-dessus de la tête). Résiste aux plugins qui réécrivent le nametag. */
+	private function applyNameTagIcon(Player $p, string $state) : void {
+		$tag = $p->getNameTag();
+		$clean = (string) preg_replace('/[\x{EA00}-\x{EA02}] ?/u', '', $tag);
+		$icon = self::ICON[$state] ?? "";
+		if ($icon === "") {
+			$want = $clean;
+		} else {
+			$pos = strpos($clean, $p->getName());
+			$want = $pos === false ? $icon . " " . $clean : substr($clean, 0, $pos) . $icon . " " . substr($clean, $pos);
+		}
+		if ($want !== $tag) $p->setNameTag($want);
 	}
 
 	public function onQuit(PlayerQuitEvent $e) : void {

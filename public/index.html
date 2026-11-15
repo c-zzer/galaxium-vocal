@@ -185,7 +185,7 @@ function forget(){ store.del("gv_token"); store.del("gv_name"); S.token=null; S.
 async function start(authMsg, errEl){
   errEl.textContent = "";
   try {
-    S.ctx = S.ctx || new (window.AudioContext||window.webkitAudioContext)();
+    S.ctx = S.ctx || new (window.AudioContext||window.webkitAudioContext)({ latencyHint: "interactive" });
     await S.ctx.resume();
     if (!S.local) await openMic(store.get("gv_mic"));
   } catch (e) {
@@ -329,7 +329,12 @@ function createPeer(name, initiator){
   else pc.addTransceiver("audio", { direction:"recvonly" });
 
   pc.onicecandidate = (e) => { if (e.candidate) wsSend({ t:"signal", to:name, data:{ c:e.candidate } }); };
-  pc.ontrack = (e) => attachAudio(peer, e.streams[0] || new MediaStream([e.track]));
+  pc.ontrack = (e) => {
+    // latence minimale : on demande au navigateur de ne presque pas bufferiser
+    try { if ("jitterBufferTarget" in e.receiver) e.receiver.jitterBufferTarget = 0; } catch {}
+    try { e.receiver.playoutDelayHint = 0; } catch {}
+    attachAudio(peer, e.streams[0] || new MediaStream([e.track]));
+  };
   pc.onconnectionstatechange = () => {
     const st = pc.connectionState;
     if (st === "failed") closePeer(name);
@@ -340,12 +345,26 @@ function createPeer(name, initiator){
     (async () => {
       try {
         const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        await pc.setLocalDescription({ type: offer.type, sdp: lowLatency(offer.sdp) });
         wsSend({ t:"signal", to:name, data:{ sdp:pc.localDescription } });
       } catch (e) { closePeer(name); }
     })();
   }
   return peer;
+}
+
+// Opus réglé pour la voix en temps réel : paquets de 10 ms, mono, sans DTX
+function lowLatency(sdp){
+  const m = sdp.match(/a=rtpmap:(\d+) opus\/48000/i);
+  if (!m) return sdp;
+  const pt = m[1];
+  sdp = sdp.replace(new RegExp("a=fmtp:" + pt + " ([^\\r\\n]*)"), (all, params) => {
+    const kv = Object.fromEntries(params.split(";").filter(Boolean).map(x => x.trim().split("=")));
+    Object.assign(kv, { minptime: "10", useinbandfec: "1", usedtx: "0", stereo: "0", maxaveragebitrate: "32000" });
+    return "a=fmtp:" + pt + " " + Object.entries(kv).map(([k, v]) => k + "=" + v).join(";");
+  });
+  if (!/a=ptime:/.test(sdp)) sdp = sdp.replace(/(a=fmtp:[^\r\n]*\r?\n)/, "$1a=ptime:10\r\n");
+  return sdp;
 }
 
 async function onSignal(from, data){
@@ -356,7 +375,7 @@ async function onSignal(from, data){
         peer = createPeer(from, false);
         await peer.pc.setRemoteDescription(data.sdp);
         const ans = await peer.pc.createAnswer();
-        await peer.pc.setLocalDescription(ans);
+        await peer.pc.setLocalDescription({ type: ans.type, sdp: lowLatency(ans.sdp) });
         wsSend({ t:"signal", to:from, data:{ sdp:peer.pc.localDescription } });
       } else if (peer && peer.pc.signalingState === "have-local-offer"){
         await peer.pc.setRemoteDescription(data.sdp);
@@ -377,18 +396,39 @@ function attachAudio(peer, stream){
   peer.src = S.ctx.createMediaStreamSource(stream);
   peer.gain = S.ctx.createGain();
   peer.gain.gain.value = (S.vol[peer.name.toLowerCase()] ?? 100) / 100;
+  // chaîne : volume perso → filtre (voix étouffée au loin) → volume distance → spatialisation 3D
+  peer.filter = S.ctx.createBiquadFilter();
+  peer.filter.type = "lowpass"; peer.filter.Q.value = 0.6; peer.filter.frequency.value = 18000;
+  peer.dist = S.ctx.createGain(); peer.dist.gain.value = 0;
   const pn = S.ctx.createPanner();
   pn.panningModel = "HRTF"; pn.distanceModel = "linear";
-  pn.refDistance = 2; pn.maxDistance = S.range; pn.rolloffFactor = 1;
+  pn.refDistance = 1; pn.maxDistance = 10000; pn.rolloffFactor = 0; // la distance est gérée à la main
   peer.panner = pn;
-  peer.src.connect(peer.gain).connect(pn).connect(S.master);
+  peer.src.connect(peer.gain).connect(peer.filter).connect(peer.dist).connect(pn).connect(S.master);
   const p = S.players.find(x => x.name === peer.name);
   if (p) placePeer(peer, p);
+}
+
+// Courbe de distance : pleine voix jusqu'à 3 blocs, puis baisse douce (courbe en S),
+// et la voix devient de plus en plus étouffée (moins d'aigus) en s'éloignant.
+function distanceEffect(d){
+  const near = 3, R = S.range;
+  if (d <= near) return { g: 1, f: 18000 };
+  if (d >= R) return { g: 0, f: 700 };
+  const t = (d - near) / (R - near);              // 0 → 1
+  const g = Math.pow(1 - t, 1.6);                  // baisse progressive, s'éteint en douceur
+  const f = 700 * Math.pow(18000 / 700, Math.pow(1 - t, 0.7)); // 18 kHz → 700 Hz
+  return { g, f };
 }
 
 function placePeer(peer, p){
   if (!peer.panner) return;
   const t = S.ctx.currentTime, pn = peer.panner;
+  if (S.me && peer.dist){
+    const e = distanceEffect(dist(p, S.me));
+    peer.dist.gain.setTargetAtTime(e.g, t, .12);
+    peer.filter.frequency.setTargetAtTime(e.f, t, .12);
+  }
   if (pn.positionX){ pn.positionX.setTargetAtTime(p.x,t,.08); pn.positionY.setTargetAtTime(p.y,t,.08); pn.positionZ.setTargetAtTime(p.z,t,.08); }
   else pn.setPosition(p.x,p.y,p.z);
 }
